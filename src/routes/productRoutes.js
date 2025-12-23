@@ -7,7 +7,6 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 router.get('/', productController.getProducts);
 router.get('/search', productController.searchProducts); // ?q=query
 router.get('/:id', productController.getProductById);
-
 router.post(
     '/',
     authenticate,

@@ -1,10 +1,10 @@
-// src/controllers/brandController.js
 const brandService = require('../services/brandService');
 
 const getBrands = async (req, res, next) => {
     try {
-        const brands = await brandService.getAllBrands(req.query);
-        res.json(brands);
+        const { brands, total, page, pages, limit, hasMore } =
+            await brandService.getAllBrands(req.query);
+        res.json({ brands, total, page, pages, limit, hasMore });
     } catch (err) {
         next(err);
     }

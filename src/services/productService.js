@@ -1,9 +1,8 @@
-// src/services/productService.js
 const Joi = require('joi');
 const productModel = require('../models/productModel');
-const inventoryService = require('./inventoryService'); // Для проверки стока
-const AppError = require('../utils/errorUtils'); // Импорт AppError
+const AppError = require('../utils/errorUtils');
 
+// Схема для создания/обновления (без изменений)
 const productSchema = Joi.object({
     name: Joi.string().required(),
     description: Joi.string().optional(),
@@ -25,43 +24,58 @@ const productSchema = Joi.object({
     is_featured: Joi.boolean().default(false),
     is_new: Joi.boolean().default(true),
     is_bestseller: Joi.boolean().default(false),
-    attributes: Joi.object().default({}),
+    attributes: Joi.object()
+        .keys({
+            ingredients: Joi.string().optional(),
+            usage: Joi.string().optional(),
+            variants: Joi.array()
+                .items(
+                    Joi.object({
+                        name: Joi.string(),
+                        value: Joi.string(),
+                    })
+                )
+                .optional(),
+        })
+        .default({}),
     meta_title: Joi.string().optional(),
     meta_description: Joi.string().optional(),
 });
 
+// Схема для query (без изменений)
+const querySchema = Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(9),
+    category: Joi.string().optional(),
+    subcategoryId: Joi.number().integer().optional(),
+    brandId: Joi.number().integer().optional(),
+    search: Joi.string().optional(),
+    minPrice: Joi.number().positive().optional(),
+    maxPrice: Joi.number().positive().optional(),
+    isFeatured: Joi.boolean().optional(),
+    isNew: Joi.boolean().optional(),
+    isBestseller: Joi.boolean().optional(),
+    sort: Joi.string()
+        .valid(
+            'popularity',
+            'price_asc',
+            'price_desc',
+            'rating',
+            'new_random',
+            'id_desc'
+        )
+        .default('id_desc'),
+});
+
 const getAllProducts = async (query) => {
-    const {
-        page = 1,
-        limit = 10,
-        categoryId,
-        brandId,
-        search,
-        minPrice,
-        maxPrice,
-        isFeatured,
-        isNew,
-        isBestseller,
-    } = query;
-    // Построить фильтры в модели
-    return productModel.getAllProducts({
-        page,
-        limit,
-        categoryId,
-        brandId,
-        search,
-        minPrice,
-        maxPrice,
-        isFeatured,
-        isNew,
-        isBestseller,
-    });
+    const { error, value } = querySchema.validate(query);
+    if (error) throw new AppError(error.details[0].message, 400);
+    return productModel.getAllProducts(value);
 };
 
 const getProductById = async (id) => {
     const product = await productModel.getProductById(id);
     if (!product) throw new AppError('Product not found', 404);
-    // Опционально добавить reviews или stock
     return product;
 };
 
@@ -82,7 +96,6 @@ const updateProduct = async (id, data) => {
 const deleteProduct = async (id) => {
     const product = await productModel.getProductById(id);
     if (!product) throw new AppError('Product not found', 404);
-    // Проверить, если в заказах (опционально)
     return productModel.deleteProduct(id);
 };
 

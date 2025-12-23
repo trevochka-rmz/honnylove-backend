@@ -1,10 +1,10 @@
-// src/models/productModel.js
 const db = require('../config/db');
 
 const getAllProducts = async ({
     page = 1,
-    limit = 10,
-    categoryId,
+    limit = 9,
+    category,
+    subcategoryId,
     brandId,
     search,
     minPrice,
@@ -12,59 +12,120 @@ const getAllProducts = async ({
     isFeatured,
     isNew,
     isBestseller,
+    sort = 'id_desc',
 }) => {
-    let query = 'SELECT * FROM product_products';
+    let baseQuery = 'FROM product_view';
     const params = [];
     let where = '';
-    if (categoryId) where += ` category_id = $${params.length + 1}`;
-    params.push(categoryId);
-    if (brandId)
+
+    // Строим WHERE-клаузу (как раньше)
+    if (category) {
+        where += (where ? ' AND' : '') + ` category = $${params.length + 1}`;
+        params.push(category);
+    }
+    if (subcategoryId) {
+        where +=
+            (where ? ' AND' : '') + ` subcategory_id = $${params.length + 1}`;
+        params.push(subcategoryId);
+    }
+    if (brandId) {
         where += (where ? ' AND' : '') + ` brand_id = $${params.length + 1}`;
-    params.push(brandId);
-    if (search)
+        params.push(brandId);
+    }
+    if (search) {
         where +=
             (where ? ' AND' : '') +
             ` (name ILIKE $${params.length + 1} OR description ILIKE $${
                 params.length + 1
             })`;
-    params.push(`%${search}%`);
-    if (minPrice)
+        params.push(`%${search}%`);
+    }
+    if (minPrice) {
+        where += (where ? ' AND' : '') + ` price >= $${params.length + 1}`;
+        params.push(minPrice);
+    }
+    if (maxPrice) {
+        where += (where ? ' AND' : '') + ` price <= $${params.length + 1}`;
+        params.push(maxPrice);
+    }
+    if (isFeatured !== undefined) {
         where +=
-            (where ? ' AND' : '') + ` retail_price >= $${params.length + 1}`;
-    params.push(minPrice);
-    if (maxPrice)
+            (where ? ' AND' : '') + ` "isFeatured" = $${params.length + 1}`;
+        params.push(isFeatured);
+    }
+    if (isNew !== undefined) {
+        where += (where ? ' AND' : '') + ` "isNew" = $${params.length + 1}`;
+        params.push(isNew);
+    }
+    if (isBestseller !== undefined) {
         where +=
-            (where ? ' AND' : '') + ` retail_price <= $${params.length + 1}`;
-    params.push(maxPrice);
-    if (isFeatured !== undefined)
-        where += (where ? ' AND' : '') + ` is_featured = $${params.length + 1}`;
-    params.push(isFeatured);
-    if (isNew !== undefined)
-        where += (where ? ' AND' : '') + ` is_new = $${params.length + 1}`;
-    params.push(isNew);
-    if (isBestseller !== undefined)
-        where +=
-            (where ? ' AND' : '') + ` is_bestseller = $${params.length + 1}`;
-    params.push(isBestseller);
-    if (where) query += ' WHERE' + where;
-    query += ` ORDER BY id LIMIT $${params.length + 1} OFFSET $${
-        params.length + 2
-    }`;
-    params.push(limit, (page - 1) * limit);
-    const { rows } = await db.query(query, params);
-    return rows;
+            (where ? ' AND' : '') + ` "isBestseller" = $${params.length + 1}`;
+        params.push(isBestseller);
+    }
+
+    // Для sort='new_random' добавляем isNew=true, если не указано
+    if (sort === 'new_random' && isNew === undefined) {
+        where += (where ? ' AND' : '') + ` "isNew" = $${params.length + 1}`;
+        params.push(true);
+    }
+
+    if (where) baseQuery += ' WHERE' + where;
+
+    // Определяем ORDER BY в зависимости от sort
+    let orderBy = ' ORDER BY id DESC'; // По умолчанию
+    switch (sort) {
+        case 'popularity':
+            orderBy = ' ORDER BY "reviewCount" DESC, id DESC';
+            break;
+        case 'price_asc':
+            orderBy = ' ORDER BY price ASC';
+            break;
+        case 'price_desc':
+            orderBy = ' ORDER BY price DESC';
+            break;
+        case 'rating':
+            orderBy = ' ORDER BY rating DESC';
+            break;
+        case 'new_random':
+            orderBy = ' ORDER BY RANDOM()';
+            break;
+        case 'id_desc':
+            orderBy = ' ORDER BY id DESC';
+            break;
+        default:
+            orderBy = ' ORDER BY id DESC';
+    }
+
+    // Запрос для продуктов
+    const dataQuery = `SELECT * ${baseQuery}${orderBy} LIMIT $${
+        params.length + 1
+    } OFFSET $${params.length + 2}`;
+    const dataParams = [...params, limit, (page - 1) * limit];
+    const { rows: products } = await db.query(dataQuery, dataParams);
+
+    // Запрос для total
+    const countQuery = `SELECT COUNT(*) ${baseQuery}`;
+    const { rows: countRows } = await db.query(countQuery, params);
+    const total = parseInt(countRows[0].count, 10);
+
+    // Рассчитываем pages (если limit > 0, иначе 0)
+    const pages = limit > 0 ? Math.ceil(total / limit) : 0;
+
+    // Рассчитываем hasMore
+    const hasMore = page < pages;
+
+    return { products, total, page, pages, limit, hasMore };
 };
 
 const getProductById = async (id) => {
     const { rows } = await db.query(
-        'SELECT * FROM product_products WHERE id = $1',
+        'SELECT * FROM product_view WHERE id = $1',
         [id]
     );
     return rows[0];
 };
 
 const createProduct = async (data) => {
-    // Поля по схеме, триггеры сделают sku/slug
     const fields = Object.keys(data).join(', ');
     const values = Object.values(data);
     const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
@@ -72,7 +133,8 @@ const createProduct = async (data) => {
         `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
         values
     );
-    return rows[0];
+    const created = rows[0];
+    return getProductById(created.id);
 };
 
 const updateProduct = async (id, data) => {
@@ -84,7 +146,7 @@ const updateProduct = async (id, data) => {
         `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
         [id, ...values]
     );
-    return rows[0];
+    return getProductById(id);
 };
 
 const deleteProduct = async (id) => {
@@ -93,7 +155,7 @@ const deleteProduct = async (id) => {
 
 const searchProducts = async (query) => {
     const { rows } = await db.query(
-        'SELECT * FROM product_products WHERE name ILIKE $1 OR description ILIKE $1 OR sku ILIKE $1',
+        'SELECT * FROM product_view WHERE name ILIKE $1 OR description ILIKE $1',
         [`%${query}%`]
     );
     return rows;
@@ -101,7 +163,7 @@ const searchProducts = async (query) => {
 
 const getProductsByBrand = async (brandId) => {
     const { rows } = await db.query(
-        'SELECT * FROM product_products WHERE brand_id = $1',
+        'SELECT * FROM product_view WHERE brand_id = $1',
         [brandId]
     );
     return rows;

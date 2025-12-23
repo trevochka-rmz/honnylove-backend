@@ -1,10 +1,10 @@
-// src/controllers/productController.js
 const productService = require('../services/productService');
 
 const getProducts = async (req, res, next) => {
     try {
-        const products = await productService.getAllProducts(req.query);
-        res.json(products);
+        const { products, total, page, pages, limit, hasMore } =
+            await productService.getAllProducts(req.query);
+        res.json({ products, total, page, pages, limit, hasMore });
     } catch (err) {
         next(err);
     }
