@@ -26,25 +26,6 @@ app.use(cors({ origin: '*' })); // Или specific: 'http://localhost:3000'
 app.use(express.json()); // Парсит JSON body
 
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-app.get('/test-image/:id', (req, res) => {
-    const productId = req.params.id;
-    res.send(`
-        <html>
-            <body>
-                <h1>Тест изображения для товара ${productId}</h1>
-                <p>Путь в БД: /uploads/products/${productId}/main.jpg</p>
-                <p>Прямая ссылка: <a href="/uploads/products/${productId}/main.jpg">/uploads/products/${productId}/main.jpg</a></p>
-                <img src="/uploads/products/${productId}/main.jpg" alt="Тест" style="max-width: 300px;">
-                <hr>
-                <p>Если изображение не отображается, проверьте:</p>
-                <ol>
-                    <li>Файл существует: backend/uploads/products/${productId}/main.jpg</li>
-                    <li>Правильный путь в статике: app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));</li>
-                </ol>
-            </body>
-        </html>
-    `);
-});
 
 // Routes под /api
 app.use('/api/auth', authRoutes);

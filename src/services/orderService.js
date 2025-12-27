@@ -1,79 +1,181 @@
-// src/services/orderService.js
+// services/orderService.js
 const Joi = require('joi');
 const orderModel = require('../models/orderModel');
 const cartService = require('./cartService');
 const inventoryService = require('./inventoryService');
-const AppError = require('../utils/errorUtils'); // Импорт AppError
+const AppError = require('../utils/errorUtils');
 
-const orderSchema = Joi.object({
-    shipping_address: Joi.string().required(),
-    payment_method: Joi.string().valid('card', 'cash').required(),
+// Схема оформления заказа
+const checkoutSchema = Joi.object({
+    shipping_address: Joi.string().required().min(10),
+    payment_method: Joi.string().valid('card', 'cash', 'online').required(),
+    notes: Joi.string().optional(),
 });
 
-const createOrder = async (userId, data) => {
-    const { error } = orderSchema.validate(data);
-    if (error) throw new AppError(error.details[0].message, 400);
-    const cartItems = await cartService.getCart(userId);
-    if (cartItems.length === 0) throw new AppError('Cart is empty', 400);
-    let totalAmount = 0;
-    const orderItems = [];
-    for (const item of cartItems) {
-        const product = await productService.getProductById(item.product_id);
-        await inventoryService.checkStock(product.id, item.quantity);
-        const price = product.discount_price || product.retail_price;
-        totalAmount += price * item.quantity;
-        orderItems.push({
-            product_id: product.id,
+// Проверка и резервирование товаров
+const reserveItems = async (items) => {
+    const reservedItems = [];
+
+    for (const item of items) {
+        // Проверяем наличие
+        const availableStock = await inventoryService.getTotalStock(
+            item.product_id
+        );
+
+        if (availableStock < item.quantity) {
+            throw new AppError(
+                `Недостаточно товара "${item.product.name}". Доступно: ${availableStock}, в корзине: ${item.quantity}`,
+                400
+            );
+        }
+
+        // Вычитаем из запасов (резервируем)
+        await inventoryService.updateStock(item.product_id, 1, -item.quantity);
+
+        reservedItems.push({
+            product_id: item.product_id,
             quantity: item.quantity,
-            price,
+            price: item.unitPrice,
+            reserved: true,
         });
-        await inventoryService.updateStock(product.id, null, -item.quantity); // Уменьшить stock
     }
-    const order = await orderModel.createOrder({
-        user_id: userId,
-        total_amount: totalAmount,
-        ...data,
-    });
-    await orderModel.createOrderItems(order.id, orderItems);
-    await cartService.clearCart(userId);
-    return order;
+
+    return reservedItems;
 };
 
-const getOrdersByUser = async (userId, query) => {
-    const { page = 1, limit = 10, status } = query;
-    return orderModel.getOrdersByUser(userId, { page, limit, status });
+// Создание заказа
+const createOrder = async (userId, orderData) => {
+    // Валидация данных
+    const { error } = checkoutSchema.validate(orderData);
+    if (error) {
+        throw new AppError(error.details[0].message, 400);
+    }
+
+    // Получаем корзину пользователя
+    const cart = await cartService.getCart(userId);
+
+    if (!cart.hasItems) {
+        throw new AppError('Корзина пуста', 400);
+    }
+
+    const connection = await require('../config/db').getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        // Резервируем товары
+        await reserveItems(cart.items);
+
+        // Создаем заказ
+        const order = await orderModel.createOrder({
+            user_id: userId,
+            status: 'pending',
+            total_amount: cart.summary.total,
+            shipping_address: orderData.shipping_address,
+            payment_method: orderData.payment_method,
+        });
+
+        // Создаем элементы заказа
+        for (const item of cart.items) {
+            await orderModel.addOrderItem({
+                order_id: order.id,
+                product_id: item.product_id,
+                quantity: item.quantity,
+                price: item.unitPrice,
+            });
+        }
+
+        // Записываем историю статуса
+        await orderModel.addStatusHistory(order.id, 'pending');
+
+        // Очищаем корзину
+        await cartService.clearCart(userId);
+
+        await connection.query('COMMIT');
+
+        return order;
+    } catch (error) {
+        await connection.query('ROLLBACK');
+
+        // Если произошла ошибка, возвращаем товары на склад
+        try {
+            for (const item of cart.items) {
+                await inventoryService.updateStock(
+                    item.product_id,
+                    1,
+                    item.quantity
+                );
+            }
+        } catch (rollbackError) {
+            console.error(
+                'Ошибка при возврате товаров на склад:',
+                rollbackError
+            );
+        }
+
+        throw error;
+    }
 };
 
-const getAllOrders = async (query) => {
-    const { page = 1, limit = 10, status } = query;
-    return orderModel.getAllOrders({ page, limit, status });
+// Получение заказов пользователя
+const getUserOrders = async (userId) => {
+    return orderModel.getUserOrders(userId);
 };
 
-const updateOrderStatus = async (id, status) => {
-    const validStatuses = ['pending', 'shipped', 'delivered', 'cancelled'];
-    if (!validStatuses.includes(status))
-        throw new AppError('Invalid status', 400);
-    const order = await orderModel.getOrderById(id);
-    if (!order) throw new AppError('Order not found', 404);
-    if (status === 'cancelled' && order.status !== 'pending')
-        throw new AppError('Cannot cancel non-pending order', 403);
-    if (status === 'cancelled') {
-        // Вернуть stock
-        const items = await orderModel.getOrderItems(id);
+// Отмена заказа с возвратом товаров
+const cancelOrder = async (userId, orderId) => {
+    // Проверяем принадлежность заказа
+    const order = await orderModel.getOrderById(orderId, userId);
+
+    if (!order) {
+        throw new AppError('Заказ не найден', 404);
+    }
+
+    // Проверяем, можно ли отменить
+    if (!['pending', 'processing'].includes(order.status)) {
+        throw new AppError('Нельзя отменить заказ в текущем статусе', 400);
+    }
+
+    const connection = await require('../config/db').getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        // Получаем товары из заказа
+        const items = await orderModel.getOrderItems(orderId);
+
+        // Возвращаем товары на склад
         for (const item of items) {
             await inventoryService.updateStock(
                 item.product_id,
-                null,
+                1,
                 item.quantity
             );
         }
+
+        // Обновляем статус заказа
+        const updatedOrder = await orderModel.updateOrderStatus(
+            orderId,
+            'cancelled'
+        );
+
+        // Записываем в историю
+        await orderModel.addStatusHistory(orderId, 'cancelled');
+
+        await connection.query('COMMIT');
+
+        return {
+            message: 'Заказ отменен, товары возвращены на склад',
+            order: updatedOrder,
+        };
+    } catch (error) {
+        await connection.query('ROLLBACK');
+        throw error;
     }
-    return orderModel.updateOrderStatus(id, status);
 };
 
 module.exports = {
     createOrder,
-    getOrdersByUser,
-    getAllOrders,
-    updateOrderStatus,
+    getUserOrders,
+    cancelOrder,
 };

@@ -1,51 +1,46 @@
-// src/controllers/orderController.js
+// controllers/orderController.js
 const orderService = require('../services/orderService');
 
-const createOrder = async (req, res, next) => {
+// Оформление заказа
+const checkout = async (req, res, next) => {
     try {
         const order = await orderService.createOrder(req.user.id, req.body);
-        res.status(201).json(order);
+
+        res.status(201).json({
+            message: 'Заказ успешно оформлен',
+            order: order,
+            orderId: order.id,
+        });
     } catch (err) {
         next(err);
     }
 };
 
-const getUserOrders = async (req, res, next) => {
+// Получение заказов пользователя
+const getOrders = async (req, res, next) => {
     try {
-        const orders = await orderService.getOrdersByUser(
+        const orders = await orderService.getUserOrders(req.user.id);
+        res.json(orders);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Отмена заказа
+const cancelOrder = async (req, res, next) => {
+    try {
+        const result = await orderService.cancelOrder(
             req.user.id,
-            req.query
+            req.params.orderId
         );
-        res.json(orders);
-    } catch (err) {
-        next(err);
-    }
-};
-
-const getAllOrders = async (req, res, next) => {
-    try {
-        const orders = await orderService.getAllOrders(req.query);
-        res.json(orders);
-    } catch (err) {
-        next(err);
-    }
-};
-
-const updateOrderStatus = async (req, res, next) => {
-    try {
-        const order = await orderService.updateOrderStatus(
-            req.params.id,
-            req.body.status
-        );
-        res.json(order);
+        res.json(result);
     } catch (err) {
         next(err);
     }
 };
 
 module.exports = {
-    createOrder,
-    getUserOrders,
-    getAllOrders,
-    updateOrderStatus,
+    checkout,
+    getOrders,
+    cancelOrder,
 };

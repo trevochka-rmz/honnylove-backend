@@ -9,5 +9,6 @@ router.use(authenticate, requireRole(['customer']));
 router.post('/', wishlistController.addToWishlist); // body: {productId}
 router.get('/', wishlistController.getWishlist);
 router.delete('/:productId', wishlistController.removeFromWishlist);
+router.delete('/', wishlistController.clearWishlist);
 
 module.exports = router;

@@ -20,12 +20,11 @@ const getInventory = async (productId, locationId) => {
 const updateInventory = async (productId, locationId, data) => {
     const existing = await getInventory(productId, locationId);
     if (!existing.id) {
-        // Create if not exists
         const { quantity, min_stock_level } = data;
         const { rows } = await db.query(
             `INSERT INTO product_inventory (product_id, location_id, quantity, min_stock_level)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-            [productId, locationId || 1, quantity, min_stock_level || 0] // Default location if null
+             VALUES ($1, $2, $3, $4) RETURNING *`,
+            [productId, locationId || 1, quantity, min_stock_level || 0]
         );
         return rows[0];
     }
@@ -35,21 +34,23 @@ const updateInventory = async (productId, locationId, data) => {
     const values = Object.values(data);
     const { rows } = await db.query(
         `UPDATE product_inventory SET ${fields}, last_updated = CURRENT_TIMESTAMP
-     WHERE product_id = $1 AND location_id = $2 RETURNING *`,
+         WHERE product_id = $1 AND location_id = $2 RETURNING *`,
         [productId, locationId || existing.location_id, ...values]
     );
     return rows[0];
 };
 
+// ИСПРАВЛЕННЫЙ МЕТОД getTotalStock
 const getTotalStock = async (productId) => {
     const { rows } = await db.query(
         'SELECT SUM(quantity) AS total FROM product_inventory WHERE product_id = $1',
         [productId]
     );
-    return rows[0].total || 0;
+
+    // Возвращаем 0 если total null или undefined
+    return rows[0]?.total !== null ? rows[0]?.total : 0;
 };
 
-// Для locations
 const getAllLocations = async () => {
     const { rows } = await db.query('SELECT * FROM product_locations');
     return rows;

@@ -1,12 +1,12 @@
-// src/services/authService.js
 const bcrypt = require('bcrypt');
 const Joi = require('joi');
 const userModel = require('../models/userModel');
 const {
     generateAccessToken,
     generateRefreshToken,
+    verifyToken,
 } = require('../utils/jwtUtils');
-const AppError = require('../utils/errorUtils'); // Импорт AppError
+const AppError = require('../utils/errorUtils');
 
 const userSchema = Joi.object({
     username: Joi.string().min(3).max(255).required(),
@@ -38,7 +38,7 @@ const registerUser = async (data) => {
     });
     const accessToken = generateAccessToken(newUser);
     const refreshToken = generateRefreshToken(newUser);
-    await userModel.updateRefreshToken(newUser.id, refreshToken); // Если храните в БД
+    await userModel.updateRefreshToken(newUser.id, refreshToken);
     return {
         user: { ...newUser, password_hash: undefined },
         accessToken,
@@ -67,12 +67,20 @@ const loginUser = async (credentials) => {
 };
 
 const refreshToken = async (token) => {
-    const decoded = verifyToken(token, process.env.JWT_REFRESH_SECRET);
-    const user = await userModel.getUserById(decoded.id);
-    if (!user || user.refresh_token !== token)
-        throw new AppError('Invalid refresh token', 401);
-    const newAccessToken = generateAccessToken(user);
-    return { accessToken: newAccessToken };
+    try {
+        const decoded = verifyToken(token, process.env.JWT_REFRESH_SECRET);
+        const user = await userModel.getUserById(decoded.id);
+        if (!user || user.refresh_token !== token) {
+            throw new AppError('Invalid refresh token', 401);
+        }
+        const newAccessToken = generateAccessToken(user);
+        return { accessToken: newAccessToken };
+    } catch (err) {
+        if (err.message === 'Invalid or expired token') {
+            throw new AppError('Refresh token expired or invalid', 401);
+        }
+        throw err;
+    }
 };
 
 const getUserById = async (id) => {
