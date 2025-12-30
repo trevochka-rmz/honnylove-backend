@@ -42,12 +42,11 @@ const productSchema = Joi.object({
     meta_description: Joi.string().optional(),
 });
 
-// Обновляем схему для query - ДОБАВЛЯЕМ isOnSale
+// Обновлённая схема для query: добавили categoryId, убрали category (string), subcategoryId теперь categoryId
 const querySchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(50).default(9),
-    category: Joi.string().optional(),
-    subcategoryId: Joi.number().integer().optional(),
+    categoryId: Joi.number().integer().optional(), // Новый: id категории (с подкатегориями)
     brandId: Joi.number().integer().optional(),
     search: Joi.string().optional(),
     minPrice: Joi.number().positive().optional(),
@@ -55,7 +54,7 @@ const querySchema = Joi.object({
     isFeatured: Joi.boolean().optional(),
     isNew: Joi.boolean().optional(),
     isBestseller: Joi.boolean().optional(),
-    isOnSale: Joi.boolean().optional(), // ← ДОБАВЛЯЕМ НОВЫЙ ПАРАМЕТР
+    isOnSale: Joi.boolean().optional(),
     sort: Joi.string()
         .valid(
             'popularity',

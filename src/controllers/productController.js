@@ -4,7 +4,7 @@ const { addFullImageUrls } = require('../utils/imageUtils');
 const getProducts = async (req, res, next) => {
     try {
         const result = await productService.getAllProducts(req.query);
-        const processedResult = addFullImageUrls(result, req);
+        const processedResult = addFullImageUrls(result, req); // Для продуктов и изображений
         res.json(processedResult);
     } catch (err) {
         next(err);
@@ -27,10 +27,7 @@ const getProductById = async (req, res, next) => {
 const createProduct = async (req, res, next) => {
     try {
         const product = await productService.createProduct(req.body);
-
-        // Добавляем полные URL к изображениям
-        const processedProduct = addFullImageUrls(req, product);
-
+        const processedProduct = addFullImageUrls(product, req);
         res.status(201).json(processedProduct);
     } catch (err) {
         next(err);
@@ -43,10 +40,7 @@ const updateProduct = async (req, res, next) => {
             req.params.id,
             req.body
         );
-
-        // Добавляем полные URL к изображениям
-        const processedProduct = addFullImageUrls(req, product);
-
+        const processedProduct = addFullImageUrls(product, req);
         res.json(processedProduct);
     } catch (err) {
         next(err);
@@ -65,10 +59,7 @@ const deleteProduct = async (req, res, next) => {
 const searchProducts = async (req, res, next) => {
     try {
         const results = await productService.searchProducts(req.query.q);
-
-        // Добавляем полные URL к изображениям
-        const processedResults = addFullImageUrls(req, results);
-
+        const processedResults = addFullImageUrls(results, req);
         res.json(processedResults);
     } catch (err) {
         next(err);

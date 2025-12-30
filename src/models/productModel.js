@@ -3,8 +3,7 @@ const db = require('../config/db');
 const getAllProducts = async ({
     page = 1,
     limit = 9,
-    category,
-    subcategoryId,
+    categoryId, // Новый: заменил subcategoryId и category
     brandId,
     search,
     minPrice,
@@ -12,23 +11,31 @@ const getAllProducts = async ({
     isFeatured,
     isNew,
     isBestseller,
-    isOnSale, // ← ДОБАВЛЯЕМ НОВЫЙ ПАРАМЕТР
+    isOnSale,
     sort = 'id_desc',
 }) => {
     let baseQuery = 'FROM product_view';
     const params = [];
     let where = '';
 
-    // Строим WHERE-клаузу
-    if (category) {
-        where += (where ? ' AND' : '') + ` category = $${params.length + 1}`;
-        params.push(category);
-    }
-    if (subcategoryId) {
+    // Если categoryId задан, добавляем рекурсивный CTE для подкатегорий
+    let cte = '';
+    if (categoryId) {
+        cte = `
+            WITH RECURSIVE subcats AS (
+                SELECT id FROM product_categories WHERE id = $${
+                    params.length + 1
+                }
+                UNION
+                SELECT c.id FROM product_categories c JOIN subcats s ON c.parent_id = s.id
+            )
+        `;
+        params.push(categoryId);
         where +=
-            (where ? ' AND' : '') + ` subcategory_id = $${params.length + 1}`;
-        params.push(subcategoryId);
+            (where ? ' AND' : '') + ` category_id IN (SELECT id FROM subcats)`;
     }
+
+    // Остальные фильтры (без изменений)
     if (brandId) {
         where += (where ? ' AND' : '') + ` brand_id = $${params.length + 1}`;
         params.push(brandId);
@@ -63,7 +70,6 @@ const getAllProducts = async ({
             (where ? ' AND' : '') + ` "isBestseller" = $${params.length + 1}`;
         params.push(isBestseller);
     }
-
     if (isOnSale !== undefined) {
         if (isOnSale) {
             where +=
@@ -109,15 +115,15 @@ const getAllProducts = async ({
             orderBy = ' ORDER BY id DESC';
     }
 
-    // Запрос для продуктов
-    const dataQuery = `SELECT * ${baseQuery}${orderBy} LIMIT $${
+    // Запрос для продуктов (с CTE если нужно)
+    const dataQuery = `${cte} SELECT * ${baseQuery}${orderBy} LIMIT $${
         params.length + 1
     } OFFSET $${params.length + 2}`;
     const dataParams = [...params, limit, (page - 1) * limit];
     const { rows: products } = await db.query(dataQuery, dataParams);
 
-    // Запрос для total
-    const countQuery = `SELECT COUNT(*) ${baseQuery}`;
+    // Запрос для total (с CTE если нужно)
+    const countQuery = `${cte} SELECT COUNT(*) ${baseQuery}`;
     const { rows: countRows } = await db.query(countQuery, params);
     const total = parseInt(countRows[0].count, 10);
 
