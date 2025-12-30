@@ -1,12 +1,14 @@
-// src/routes/brandRoutes.js
 const express = require('express');
 const router = express.Router();
 const brandController = require('../controllers/brandController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
+// Публичные маршруты
 router.get('/', brandController.getBrands);
+router.get('/brief', brandController.getBrandsBrief);
 router.get('/:id', brandController.getBrandById);
 
+// Защищенные маршруты (только для админов)
 router.post(
     '/',
     authenticate,

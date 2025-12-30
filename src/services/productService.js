@@ -42,7 +42,7 @@ const productSchema = Joi.object({
     meta_description: Joi.string().optional(),
 });
 
-// Схема для query (без изменений)
+// Обновляем схему для query - ДОБАВЛЯЕМ isOnSale
 const querySchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(50).default(9),
@@ -55,6 +55,7 @@ const querySchema = Joi.object({
     isFeatured: Joi.boolean().optional(),
     isNew: Joi.boolean().optional(),
     isBestseller: Joi.boolean().optional(),
+    isOnSale: Joi.boolean().optional(), // ← ДОБАВЛЯЕМ НОВЫЙ ПАРАМЕТР
     sort: Joi.string()
         .valid(
             'popularity',

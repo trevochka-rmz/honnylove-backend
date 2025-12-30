@@ -12,13 +12,14 @@ const getAllProducts = async ({
     isFeatured,
     isNew,
     isBestseller,
+    isOnSale, // ← ДОБАВЛЯЕМ НОВЫЙ ПАРАМЕТР
     sort = 'id_desc',
 }) => {
     let baseQuery = 'FROM product_view';
     const params = [];
     let where = '';
 
-    // Строим WHERE-клаузу (как раньше)
+    // Строим WHERE-клаузу
     if (category) {
         where += (where ? ' AND' : '') + ` category = $${params.length + 1}`;
         params.push(category);
@@ -61,6 +62,18 @@ const getAllProducts = async ({
         where +=
             (where ? ' AND' : '') + ` "isBestseller" = $${params.length + 1}`;
         params.push(isBestseller);
+    }
+
+    if (isOnSale !== undefined) {
+        if (isOnSale) {
+            where +=
+                (where ? ' AND' : '') +
+                ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
+        } else {
+            where +=
+                (where ? ' AND' : '') +
+                ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
+        }
     }
 
     // Для sort='new_random' добавляем isNew=true, если не указано

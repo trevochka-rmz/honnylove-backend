@@ -4,22 +4,26 @@ const router = express.Router();
 const categoryController = require('../controllers/categoryController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
-router.get('/', categoryController.getCategories);
-router.get('/tree', categoryController.getCategoriesTree);
+// Публичные роуты
+router.get('/all', categoryController.getAllCategoriesForFrontend);
 router.get('/:id', categoryController.getCategoryById);
+router.get('/', categoryController.getCategories);
 
+// Защищенные роуты (админка)
 router.post(
     '/',
     authenticate,
     requireRole(['admin']),
     categoryController.createCategory
 );
+
 router.put(
     '/:id',
     authenticate,
     requireRole(['admin']),
     categoryController.updateCategory
 );
+
 router.delete(
     '/:id',
     authenticate,

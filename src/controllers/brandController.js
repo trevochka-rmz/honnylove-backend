@@ -1,10 +1,36 @@
+// controllers/brandController.js
 const brandService = require('../services/brandService');
+const { addFullImageUrls } = require('../utils/imageUtils'); // Импортируем утилиту
 
 const getBrands = async (req, res, next) => {
     try {
         const { brands, total, page, pages, limit, hasMore } =
             await brandService.getAllBrands(req.query);
-        res.json({ brands, total, page, pages, limit, hasMore });
+
+        // Добавляем полные URL к логотипам
+        const processedResult = addFullImageUrls(
+            { brands, total, page, pages, limit, hasMore },
+            req
+        );
+
+        res.json(processedResult);
+    } catch (err) {
+        next(err);
+    }
+};
+
+const getBrandsBrief = async (req, res, next) => {
+    try {
+        const brands = await brandService.getAllBrandsBrief();
+
+        // Добавляем полные URL к логотипам
+        const processedBrands = addFullImageUrls(brands, req);
+
+        res.json({
+            success: true,
+            count: processedBrands.length,
+            brands: processedBrands,
+        });
     } catch (err) {
         next(err);
     }
@@ -13,7 +39,11 @@ const getBrands = async (req, res, next) => {
 const getBrandById = async (req, res, next) => {
     try {
         const brand = await brandService.getBrandById(req.params.id);
-        res.json(brand);
+
+        // Добавляем полные URL к логотипу
+        const processedBrand = addFullImageUrls(brand, req);
+
+        res.json(processedBrand);
     } catch (err) {
         next(err);
     }
@@ -22,7 +52,11 @@ const getBrandById = async (req, res, next) => {
 const createBrand = async (req, res, next) => {
     try {
         const brand = await brandService.createBrand(req.body);
-        res.status(201).json(brand);
+
+        // Добавляем полные URL к логотипу
+        const processedBrand = addFullImageUrls(brand, req);
+
+        res.status(201).json(processedBrand);
     } catch (err) {
         next(err);
     }
@@ -31,7 +65,11 @@ const createBrand = async (req, res, next) => {
 const updateBrand = async (req, res, next) => {
     try {
         const brand = await brandService.updateBrand(req.params.id, req.body);
-        res.json(brand);
+
+        // Добавляем полные URL к логотипу
+        const processedBrand = addFullImageUrls(brand, req);
+
+        res.json(processedBrand);
     } catch (err) {
         next(err);
     }
@@ -48,6 +86,7 @@ const deleteBrand = async (req, res, next) => {
 
 module.exports = {
     getBrands,
+    getBrandsBrief,
     getBrandById,
     createBrand,
     updateBrand,

@@ -52,7 +52,7 @@ const getAllBrands = async ({
 
     // Маппинг
     const mappedBrands = brands.map((brand) => ({
-        id: brand.slug,
+        id: brand.id,
         name: brand.name,
         logo: brand.logo_url,
         description: brand.description,
@@ -76,14 +76,32 @@ const getAllBrands = async ({
 };
 
 const getBrandById = async (id) => {
-    const { rows } = await db.query(
-        'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE b.id = $1 OR b.slug = $1',
-        [id]
-    );
+    // Определяем, является ли ID числом или строкой (slug)
+    const isNumericId = !isNaN(id) && !isNaN(parseFloat(id));
+
+    let query;
+    let params;
+
+    if (isNumericId) {
+        // Если передано число, ищем по числовому ID
+        query =
+            'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE b.id = $1';
+        params = [parseInt(id)];
+    } else {
+        // Если передана строка, ищем по slug
+        query =
+            'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE b.slug = $1';
+        params = [id];
+    }
+
+    const { rows } = await db.query(query, params);
     const brand = rows[0];
+
     if (!brand) return null;
+
     return {
-        id: brand.slug,
+        id: brand.id, // Возвращаем числовой ID, а не slug
+        slug: brand.slug || brand.id.toString(), // Добавляем slug в ответ
         name: brand.name,
         logo: brand.logo_url,
         description: brand.description,
@@ -102,6 +120,20 @@ const getBrandByName = async (name) => {
         [name]
     );
     return rows[0];
+};
+
+// Новый метод для получения всех брендов кратко
+const getAllBrandsBrief = async () => {
+    const { rows } = await db.query(
+        'SELECT id, name, logo_url, slug FROM product_brands WHERE is_active = true ORDER BY name ASC'
+    );
+
+    return rows.map((brand) => ({
+        id: brand.id,
+        slug: brand.slug || brand.id.toString(),
+        name: brand.name,
+        logo: brand.logo_url,
+    }));
 };
 
 const createBrand = async (data) => {
@@ -158,6 +190,7 @@ module.exports = {
     getAllBrands,
     getBrandById,
     getBrandByName,
+    getAllBrandsBrief,
     createBrand,
     updateBrand,
     deleteBrand,

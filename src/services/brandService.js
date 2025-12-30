@@ -31,6 +31,11 @@ const getAllBrands = async (query) => {
     return brandModel.getAllBrands(value);
 };
 
+// Новый метод для получения всех брендов кратко
+const getAllBrandsBrief = async () => {
+    return brandModel.getAllBrandsBrief();
+};
+
 const getBrandById = async (id) => {
     const brand = await brandModel.getBrandById(id);
     if (!brand) throw new AppError('Brand not found', 404);
@@ -64,6 +69,7 @@ const deleteBrand = async (id) => {
 
 module.exports = {
     getAllBrands,
+    getAllBrandsBrief,
     getBrandById,
     createBrand,
     updateBrand,
