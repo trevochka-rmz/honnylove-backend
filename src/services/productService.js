@@ -16,6 +16,7 @@ const productSchema = Joi.object({
     target_audience: Joi.string().default('unisex'),
     main_image_url: Joi.string().optional(),
     image_urls: Joi.array().items(Joi.string()).default([]),
+    skin_type: Joi.string().max(100).optional(),
     weight_grams: Joi.number().integer().optional(),
     length_cm: Joi.number().integer().optional(),
     width_cm: Joi.number().integer().optional(),
