@@ -75,6 +75,11 @@ const getAllProducts = async (query) => {
     return productModel.getAllProducts(value);
 };
 
+const getAllProductsNoPagination = async () => {
+    // Новая: без пагинации
+    return productModel.getAllProductsNoPagination();
+};
+
 const getProductById = async (id) => {
     const product = await productModel.getProductById(id);
     if (!product) throw new AppError('Product not found', 404);
@@ -109,6 +114,7 @@ const searchProducts = async (query) => {
 module.exports = {
     getAllProducts,
     getProductById,
+    getAllProductsNoPagination,
     createProduct,
     updateProduct,
     deleteProduct,

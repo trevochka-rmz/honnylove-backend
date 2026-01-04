@@ -19,6 +19,15 @@ const login = async (req, res, next) => {
     }
 };
 
+const adminLogin = async (req, res, next) => {
+    try {
+        const result = await authService.adminLogin(req.body);
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+};
+
 const refresh = async (req, res, next) => {
     try {
         const result = await authService.refreshToken(req.body.refreshToken);
@@ -28,4 +37,4 @@ const refresh = async (req, res, next) => {
     }
 };
 
-module.exports = { register, login, refresh };
+module.exports = { register, login, refresh, adminLogin };

@@ -46,6 +46,18 @@ const registerUser = async (data) => {
     };
 };
 
+const adminLogin = async (credentials) => {
+    const result = await loginUser(credentials); // Сначала обычный login
+    const user = result.user;
+    if (!['admin', 'manager'].includes(user.role)) {
+        throw new AppError(
+            'Access denied: Admin or manager role required',
+            401
+        );
+    }
+    return result; // Возвращаем то же, если role ок
+};
+
 const loginUser = async (credentials) => {
     const { error } = loginSchema.validate(credentials);
     if (error) throw new AppError(error.details[0].message, 400);
@@ -107,4 +119,5 @@ module.exports = {
     refreshToken,
     getUserById,
     updateUser,
+    adminLogin,
 };

@@ -4,8 +4,18 @@ const { addFullImageUrls } = require('../utils/imageUtils');
 const getProducts = async (req, res, next) => {
     try {
         const result = await productService.getAllProducts(req.query);
-        const processedResult = addFullImageUrls(result, req); // Для продуктов и изображений
+        const processedResult = addFullImageUrls(result, req);
         res.json(processedResult);
+    } catch (err) {
+        next(err);
+    }
+};
+
+const getAllProductsNoPagination = async (req, res, next) => {
+    try {
+        const products = await productService.getAllProductsNoPagination();
+        const processedProducts = addFullImageUrls(products, req);
+        res.json(processedProducts);
     } catch (err) {
         next(err);
     }
@@ -68,6 +78,7 @@ const searchProducts = async (req, res, next) => {
 
 module.exports = {
     getProducts,
+    getAllProductsNoPagination,
     getProductById,
     createProduct,
     updateProduct,

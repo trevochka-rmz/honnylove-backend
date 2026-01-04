@@ -137,6 +137,14 @@ const getAllProducts = async ({
     return { products, total, page, pages, limit, hasMore };
 };
 
+const getAllProductsNoPagination = async () => {
+    // Новая: все продукты без пагинации
+    const { rows: products } = await db.query(
+        'SELECT * FROM product_view ORDER BY id DESC'
+    );
+    return products;
+};
+
 const getProductById = async (id) => {
     const { rows } = await db.query(
         'SELECT * FROM product_view WHERE id = $1',
@@ -146,6 +154,16 @@ const getProductById = async (id) => {
 };
 
 const createProduct = async (data) => {
+    // Дефолтные attributes
+    const defaultAttributes = {
+        usage: 'в скором времени появится информация.',
+        variants: [{ name: 'Объём', value: '50 мл' }],
+        ingredients: 'Будет в скором времени',
+    };
+    // Мержим attributes, если не указаны или частично
+    data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
+
+    // Вставляем без изображений
     const fields = Object.keys(data).join(', ');
     const values = Object.values(data);
     const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
@@ -154,10 +172,57 @@ const createProduct = async (data) => {
         values
     );
     const created = rows[0];
-    return getProductById(created.id);
+    const productId = created.id;
+
+    // Генерируем пути, если не указаны
+    const updates = {};
+    if (!created.main_image_url) {
+        updates.main_image_url = `/uploads/products/${productId}/main.jpg`;
+    }
+    if (!created.image_urls || created.image_urls.length === 0) {
+        updates.image_urls = [
+            `/uploads/products/${productId}/gallery/1.jpg`,
+            `/uploads/products/${productId}/gallery/2.jpg`,
+        ];
+    }
+
+    // Если есть обновления — UPDATE
+    if (Object.keys(updates).length > 0) {
+        const updateFields = Object.keys(updates)
+            .map((key, idx) => `${key} = $${idx + 2}`)
+            .join(', ');
+        const updateValues = Object.values(updates);
+        await db.query(
+            `UPDATE product_products SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [productId, ...updateValues]
+        );
+    }
+
+    return getProductById(productId);
 };
 
 const updateProduct = async (id, data) => {
+    // Дефолтные attributes (мержим только если attributes в data)
+    if (data.attributes) {
+        const defaultAttributes = {
+            usage: 'в скором времени появится информация.',
+            variants: [{ name: 'Объём', value: '50 мл' }],
+            ingredients: 'Будет в скором времени',
+        };
+        data.attributes = { ...defaultAttributes, ...data.attributes };
+    }
+
+    // Генерируем пути, если не указаны в data
+    if (!data.main_image_url) {
+        data.main_image_url = `/uploads/products/${id}/main.jpg`;
+    }
+    if (!data.image_urls || data.image_urls.length === 0) {
+        data.image_urls = [
+            `/uploads/products/${id}/gallery/1.jpg`,
+            `/uploads/products/${id}/gallery/2.jpg`,
+        ];
+    }
+
     const fields = Object.keys(data)
         .map((key, idx) => `${key} = $${idx + 2}`)
         .join(', ');
@@ -192,6 +257,7 @@ const getProductsByBrand = async (brandId) => {
 
 module.exports = {
     getAllProducts,
+    getAllProductsNoPagination,
     getProductById,
     createProduct,
     updateProduct,

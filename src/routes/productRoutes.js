@@ -7,6 +7,14 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 router.get('/', productController.getProducts);
 router.get('/search', productController.searchProducts); // ?q=query
 router.get('/:id', productController.getProductById);
+
+router.get(
+    '/admin/all',
+    authenticate,
+    requireRole(['admin']),
+    productController.getAllProductsNoPagination
+);
+
 router.post(
     '/',
     authenticate,
