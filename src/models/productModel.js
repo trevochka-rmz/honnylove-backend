@@ -17,7 +17,6 @@ const getAllProducts = async ({
     let baseQuery = 'FROM product_view';
     const params = [];
     let where = '';
-
     // Если categoryId задан, добавляем рекурсивный CTE для подкатегорий
     let cte = '';
     if (categoryId) {
@@ -34,7 +33,6 @@ const getAllProducts = async ({
         where +=
             (where ? ' AND' : '') + ` category_id IN (SELECT id FROM subcats)`;
     }
-
     // Остальные фильтры (без изменений)
     if (brandId) {
         where += (where ? ' AND' : '') + ` brand_id = $${params.length + 1}`;
@@ -45,15 +43,22 @@ const getAllProducts = async ({
             (where ? ' AND' : '') +
             ` (name ILIKE $${params.length + 1} OR description ILIKE $${
                 params.length + 1
+            }` +
+            ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${
+                params.length + 1
             })`;
         params.push(`%${search}%`);
     }
     if (minPrice) {
-        where += (where ? ' AND' : '') + ` price >= $${params.length + 1}`;
+        where +=
+            (where ? ' AND' : '') +
+            ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
         params.push(minPrice);
     }
     if (maxPrice) {
-        where += (where ? ' AND' : '') + ` price <= $${params.length + 1}`;
+        where +=
+            (where ? ' AND' : '') +
+            ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
         params.push(maxPrice);
     }
     if (isFeatured !== undefined) {
@@ -81,26 +86,24 @@ const getAllProducts = async ({
                 ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
         }
     }
-
     // Для sort='new_random' добавляем isNew=true, если не указано
     if (sort === 'new_random' && isNew === undefined) {
         where += (where ? ' AND' : '') + ` "isNew" = $${params.length + 1}`;
         params.push(true);
     }
-
     if (where) baseQuery += ' WHERE' + where;
-
-    // Определяем ORDER BY в зависимости от sort
+    // Определяем ORDER BY в зависимости от sort (добавили 'newest')
     let orderBy = ' ORDER BY id DESC'; // По умолчанию
     switch (sort) {
         case 'popularity':
             orderBy = ' ORDER BY "reviewCount" DESC, id DESC';
             break;
         case 'price_asc':
-            orderBy = ' ORDER BY price ASC';
+            orderBy = ' ORDER BY COALESCE("discountPrice", price) ASC, id DESC';
             break;
         case 'price_desc':
-            orderBy = ' ORDER BY price DESC';
+            orderBy =
+                ' ORDER BY COALESCE("discountPrice", price) DESC, id DESC';
             break;
         case 'rating':
             orderBy = ' ORDER BY rating DESC';
@@ -111,28 +114,26 @@ const getAllProducts = async ({
         case 'id_desc':
             orderBy = ' ORDER BY id DESC';
             break;
+        case 'newest': // Новая сортировка: по дате создания desc
+            orderBy = ' ORDER BY created_at DESC, id DESC';
+            break;
         default:
             orderBy = ' ORDER BY id DESC';
     }
-
     // Запрос для продуктов (с CTE если нужно)
     const dataQuery = `${cte} SELECT * ${baseQuery}${orderBy} LIMIT $${
         params.length + 1
     } OFFSET $${params.length + 2}`;
     const dataParams = [...params, limit, (page - 1) * limit];
     const { rows: products } = await db.query(dataQuery, dataParams);
-
     // Запрос для total (с CTE если нужно)
     const countQuery = `${cte} SELECT COUNT(*) ${baseQuery}`;
     const { rows: countRows } = await db.query(countQuery, params);
     const total = parseInt(countRows[0].count, 10);
-
     // Рассчитываем pages (если limit > 0, иначе 0)
     const pages = limit > 0 ? Math.ceil(total / limit) : 0;
-
     // Рассчитываем hasMore
     const hasMore = page < pages;
-
     return { products, total, page, pages, limit, hasMore };
 };
 
@@ -174,7 +175,8 @@ const deleteProduct = async (id) => {
 
 const searchProducts = async (query) => {
     const { rows } = await db.query(
-        'SELECT * FROM product_view WHERE name ILIKE $1 OR description ILIKE $1',
+        'SELECT * FROM product_view WHERE name ILIKE $1 OR description ILIKE $1' +
+            ' OR brand ILIKE $1 OR category_name ILIKE $1',
         [`%${query}%`]
     );
     return rows;

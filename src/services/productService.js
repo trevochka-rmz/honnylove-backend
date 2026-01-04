@@ -43,7 +43,7 @@ const productSchema = Joi.object({
     meta_description: Joi.string().optional(),
 });
 
-// Обновлённая схема для query: добавили categoryId, убрали category (string), subcategoryId теперь categoryId
+// Обновлённая схема для query: добавили 'newest' в valid
 const querySchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(50).default(9),
@@ -63,7 +63,8 @@ const querySchema = Joi.object({
             'price_desc',
             'rating',
             'new_random',
-            'id_desc'
+            'id_desc',
+            'newest' // Добавлено: новая сортировка по created_at
         )
         .default('id_desc'),
 });
