@@ -10,7 +10,6 @@ const getAllBrands = async ({
     let baseQuery = 'FROM product_brands b';
     const params = [];
     let where = '';
-
     if (isActive !== undefined) {
         where += (where ? ' AND' : '') + ` is_active = $${params.length + 1}`;
         params.push(isActive);
@@ -23,25 +22,17 @@ const getAllBrands = async ({
             } OR full_description ILIKE $${params.length + 1})`;
         params.push(`%${search}%`);
     }
-    // if (filter === 'featured') {
-    //     where += (where ? ' AND' : '') + ` is_featured = $${params.length + 1}`;
-    //     params.push(true);
-    // }
-
+    // Featured filter убрали, если не нужен (или добавь колонку)
     if (where) baseQuery += ' WHERE' + where;
-
-    // ORDER BY в зависимости от filter
-    let orderBy = ' ORDER BY name ASC'; // Дефолт
+    let orderBy = ' ORDER BY name ASC';
     if (filter === 'popular') {
         orderBy =
             ' ORDER BY (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) DESC';
     } else if (filter === 'new') {
         orderBy = ' ORDER BY created_at DESC';
     }
-
-    // Запрос для брендов
     const dataQuery = `
-    SELECT b.*, 
+    SELECT b.*,
            (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount"
     ${baseQuery}
     ${orderBy}
@@ -49,8 +40,6 @@ const getAllBrands = async ({
   `;
     const dataParams = [...params, limit, (page - 1) * limit];
     const { rows: brands } = await db.query(dataQuery, dataParams);
-
-    // Маппинг
     const mappedBrands = brands.map((brand) => ({
         id: brand.id,
         name: brand.name,
@@ -63,45 +52,33 @@ const getAllBrands = async ({
         highlights: brand.highlights,
         productsCount: brand.productsCount,
     }));
-
-    // Запрос для total
     const countQuery = `SELECT COUNT(*) ${baseQuery}`;
     const { rows: countRows } = await db.query(countQuery, params);
     const total = parseInt(countRows[0].count, 10);
-
     const pages = limit > 0 ? Math.ceil(total / limit) : 0;
     const hasMore = page < pages;
-
     return { brands: mappedBrands, total, page, pages, limit, hasMore };
 };
 
 const getBrandById = async (id) => {
-    // Определяем, является ли ID числом или строкой (slug)
     const isNumericId = !isNaN(id) && !isNaN(parseFloat(id));
-
     let query;
     let params;
-
     if (isNumericId) {
-        // Если передано число, ищем по числовому ID
         query =
             'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE b.id = $1';
         params = [parseInt(id)];
     } else {
-        // Если передана строка, ищем по slug
         query =
             'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE b.slug = $1';
         params = [id];
     }
-
     const { rows } = await db.query(query, params);
     const brand = rows[0];
-
     if (!brand) return null;
-
     return {
-        id: brand.id, // Возвращаем числовой ID, а не slug
-        slug: brand.slug || brand.id.toString(), // Добавляем slug в ответ
+        id: brand.id,
+        slug: brand.slug || brand.id.toString(),
         name: brand.name,
         logo: brand.logo_url,
         description: brand.description,
@@ -122,12 +99,10 @@ const getBrandByName = async (name) => {
     return rows[0];
 };
 
-// Новый метод для получения всех брендов кратко
 const getAllBrandsBrief = async () => {
     const { rows } = await db.query(
         'SELECT id, name, logo_url, slug FROM product_brands WHERE is_active = true ORDER BY name ASC'
     );
-
     return rows.map((brand) => ({
         id: brand.id,
         slug: brand.slug || brand.id.toString(),
@@ -137,6 +112,12 @@ const getAllBrandsBrief = async () => {
 };
 
 const createBrand = async (data) => {
+    // Дефолты перед INSERT
+    data.is_active = data.is_active !== undefined ? data.is_active : true;
+    data.country = data.country || 'Южная Корея';
+    data.highlights = data.highlights || [];
+    data.highlights = JSON.stringify(data.highlights);
+
     const {
         name,
         description,
@@ -148,11 +129,10 @@ const createBrand = async (data) => {
         founded,
         philosophy,
         highlights,
-        is_featured,
     } = data;
     const { rows } = await db.query(
-        `INSERT INTO product_brands (name, description, website, logo_url, is_active, full_description, country, founded, philosophy, highlights, is_featured)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        `INSERT INTO product_brands (name, description, website, logo_url, is_active, full_description, country, founded, philosophy, highlights)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`, // Убрали is_featured
         [
             name,
             description,
@@ -164,13 +144,35 @@ const createBrand = async (data) => {
             founded,
             philosophy,
             highlights,
-            is_featured || false,
         ]
     );
-    return getBrandById(rows[0].id);
+    const created = rows[0];
+    const brandId = created.id;
+
+    // Генерируем logo_url если не указан
+    const updates = {};
+    if (!created.logo_url) {
+        updates.logo_url = `/uploads/brands/${brandId}/main.jpg`;
+    }
+
+    if (Object.keys(updates).length > 0) {
+        const updateFields = Object.keys(updates)
+            .map((key, idx) => `${key} = $${idx + 2}`)
+            .join(', ');
+        const updateValues = Object.values(updates);
+        await db.query(
+            `UPDATE product_brands SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [brandId, ...updateValues]
+        );
+    }
+
+    return getBrandById(brandId);
 };
 
 const updateBrand = async (id, data) => {
+    if (data.highlights) {
+        data.highlights = JSON.stringify(data.highlights);
+    }
     const fields = Object.keys(data)
         .map((key, idx) => `${key} = $${idx + 2}`)
         .join(', ');

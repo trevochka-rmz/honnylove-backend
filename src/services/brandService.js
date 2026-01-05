@@ -10,11 +10,24 @@ const brandSchema = Joi.object({
     logo_url: Joi.string().optional(),
     is_active: Joi.boolean().default(true),
     full_description: Joi.string().optional(),
-    country: Joi.string().optional(),
+    country: Joi.string().default('Южная Корея'),
     founded: Joi.string().optional(),
     philosophy: Joi.string().optional(),
     highlights: Joi.array().items(Joi.string()).default([]),
-    is_featured: Joi.boolean().default(false),
+});
+
+// НОВАЯ: Схема для update (partial, все optional)
+const updateSchema = Joi.object({
+    name: Joi.string().optional(),
+    description: Joi.string().optional(),
+    website: Joi.string().uri().optional(),
+    logo_url: Joi.string().optional(),
+    is_active: Joi.boolean().optional(),
+    full_description: Joi.string().optional(),
+    country: Joi.string().optional(),
+    founded: Joi.string().optional(),
+    philosophy: Joi.string().optional(),
+    highlights: Joi.array().items(Joi.string()).optional(),
 });
 
 const querySchema = Joi.object({
@@ -22,7 +35,7 @@ const querySchema = Joi.object({
     limit: Joi.number().integer().min(1).max(50).default(8),
     isActive: Joi.boolean().optional(),
     search: Joi.string().optional(),
-    filter: Joi.string().valid('featured', 'popular', 'new').optional(),
+    filter: Joi.string().valid('popular', 'new').optional(),
 });
 
 const getAllBrands = async (query) => {
@@ -31,7 +44,6 @@ const getAllBrands = async (query) => {
     return brandModel.getAllBrands(value);
 };
 
-// Новый метод для получения всех брендов кратко
 const getAllBrandsBrief = async () => {
     return brandModel.getAllBrandsBrief();
 };
@@ -43,15 +55,15 @@ const getBrandById = async (id) => {
 };
 
 const createBrand = async (data) => {
-    const { error } = brandSchema.validate(data);
+    const { error, value } = brandSchema.validate(data);
     if (error) throw new AppError(error.details[0].message, 400);
-    const existing = await brandModel.getBrandByName(data.name);
+    const existing = await brandModel.getBrandByName(value.name);
     if (existing) throw new AppError('Brand name already exists', 409);
-    return brandModel.createBrand(data);
+    return brandModel.createBrand(value);
 };
 
 const updateBrand = async (id, data) => {
-    const { error } = brandSchema.validate(data, { stripUnknown: true });
+    const { error } = updateSchema.validate(data, { stripUnknown: true });
     if (error) throw new AppError(error.details[0].message, 400);
     const brand = await brandModel.getBrandById(id);
     if (!brand) throw new AppError('Brand not found', 404);

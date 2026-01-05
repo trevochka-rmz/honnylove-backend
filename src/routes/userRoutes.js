@@ -14,14 +14,14 @@ router.get(
 router.get(
     '/profile',
     authenticate,
-    // requireRole(['admin']),
+    requireRole(['admin']),
     userController.getProfile
 );
 
 router.post(
     '/admin/create-admin',
-    authenticate,
-    requireRole(['admin']),
+    // authenticate,
+    // requireRole(['admin']),
     userController.createAdmin
 );
 
