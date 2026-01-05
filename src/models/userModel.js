@@ -53,7 +53,6 @@ const updateUser = async (id, data) => {
 };
 
 const updateRefreshToken = async (id, token) => {
-    // Предполагаем, что добавили поле refresh_token в users
     return updateUser(id, { refresh_token: token });
 };
 
@@ -72,6 +71,55 @@ const getAllUsers = async ({ page = 1, limit = 10, role }) => {
     return rows;
 };
 
+// НОВАЯ ФУНКЦИЯ: Получение профиля с метриками
+const getUserProfile = async (id) => {
+    const user = await getUserById(id);
+    if (!user) return null;
+
+    // Базовые данные без пароля
+    const profile = {
+        ...user,
+        password_hash: undefined,
+        refresh_token: undefined,
+    };
+
+    if (user.role === 'customer') {
+        // Количество заказов
+        const { rows: orderRows } = await db.query(
+            'SELECT COUNT(*) FROM orders WHERE user_id = $1',
+            [id]
+        );
+        profile.orderCount = parseInt(orderRows[0].count, 10);
+
+        // Количество товаров в корзине (SUM quantity, чтобы учитывать не только позиции, но и объем)
+        const { rows: cartRows } = await db.query(
+            'SELECT SUM(quantity) FROM cart_items WHERE user_id = $1',
+            [id]
+        );
+        profile.cartCount = parseInt(cartRows[0].sum || 0, 10);
+
+        // Количество в избранных
+        const { rows: wishlistRows } = await db.query(
+            'SELECT COUNT(*) FROM wishlist_items WHERE user_id = $1',
+            [id]
+        );
+        profile.wishlistCount = parseInt(wishlistRows[0].count, 10);
+    } else if (['admin', 'manager'].includes(user.role)) {
+        // Для админов/менеджеров добавим полезные метрики (опционально, для анализа)
+        const { rows: totalUsers } = await db.query(
+            'SELECT COUNT(*) FROM users'
+        );
+        profile.totalUsers = parseInt(totalUsers[0].count, 10);
+
+        const { rows: activeOrders } = await db.query(
+            "SELECT COUNT(*) FROM orders WHERE status != 'completed' AND status != 'cancelled'"
+        );
+        profile.activeOrdersCount = parseInt(activeOrders[0].count, 10);
+    }
+
+    return profile;
+};
+
 module.exports = {
     getUserById,
     getUserByEmail,
@@ -79,4 +127,5 @@ module.exports = {
     updateUser,
     updateRefreshToken,
     getAllUsers,
+    getUserProfile,
 };

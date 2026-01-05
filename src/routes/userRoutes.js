@@ -1,25 +1,45 @@
-// src/routes/userRoutes.js
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
-router.get('/profile', authenticate, userController.getProfile);
-router.put('/profile', authenticate, userController.updateProfile);
-
+// Админ-роуты для пользователей
 router.get(
     '/',
     authenticate,
-    requireRole(['admin']),
+    // requireRole(['admin']),
     userController.getAllUsers
 );
+
+router.get(
+    '/profile',
+    authenticate,
+    // requireRole(['admin']),
+    userController.getProfile
+);
+
+router.post(
+    '/admin/create-admin',
+    authenticate,
+    requireRole(['admin']),
+    userController.createAdmin
+);
+
+router.post(
+    '/admin/create-manager',
+    authenticate,
+    requireRole(['admin']),
+    userController.createManager
+);
+
 router.put(
     '/:id/role',
     authenticate,
     requireRole(['admin']),
     userController.updateUserRole
-); // body: {role}
-router.delete(
+);
+
+router.put(
     '/:id/deactivate',
     authenticate,
     requireRole(['admin']),

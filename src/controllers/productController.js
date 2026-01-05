@@ -1,9 +1,10 @@
 const productService = require('../services/productService');
 const { addFullImageUrls } = require('../utils/imageUtils');
 
-const getProducts = async (req, res, next) => {
+// Универсальные handlers с isAdmin
+const getProducts = async (req, res, next, isAdmin = false) => {
     try {
-        const result = await productService.getAllProducts(req.query);
+        const result = await productService.getAllProducts(req.query, isAdmin);
         const processedResult = addFullImageUrls(result, req);
         res.json(processedResult);
     } catch (err) {
@@ -11,19 +12,12 @@ const getProducts = async (req, res, next) => {
     }
 };
 
-const getAllProductsNoPagination = async (req, res, next) => {
+const getProductById = async (req, res, next, isAdmin = false) => {
     try {
-        const products = await productService.getAllProductsNoPagination();
-        const processedProducts = addFullImageUrls(products, req);
-        res.json(processedProducts);
-    } catch (err) {
-        next(err);
-    }
-};
-
-const getProductById = async (req, res, next) => {
-    try {
-        const product = await productService.getProductById(req.params.id);
+        const product = await productService.getProductById(
+            req.params.id,
+            isAdmin
+        );
         if (!product) {
             return res.status(404).json({ error: 'Product not found' });
         }
@@ -78,7 +72,6 @@ const searchProducts = async (req, res, next) => {
 
 module.exports = {
     getProducts,
-    getAllProductsNoPagination,
     getProductById,
     createProduct,
     updateProduct,

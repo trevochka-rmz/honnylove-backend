@@ -43,6 +43,46 @@ const productSchema = Joi.object({
     meta_description: Joi.string().optional(),
 });
 
+const updateSchema = Joi.object({
+    name: Joi.string().optional(),
+    description: Joi.string().optional(),
+    purchase_price: Joi.number().positive().optional(),
+    retail_price: Joi.number().positive().optional(),
+    discount_price: Joi.number().positive().optional(),
+    brand_id: Joi.number().integer().optional(),
+    category_id: Joi.number().integer().optional(),
+    supplier_id: Joi.number().integer().optional(),
+    product_type: Joi.string().optional(),
+    target_audience: Joi.string().optional(),
+    main_image_url: Joi.string().optional(),
+    image_urls: Joi.array().items(Joi.string()).optional(),
+    skin_type: Joi.string().max(100).optional(),
+    weight_grams: Joi.number().integer().optional(),
+    length_cm: Joi.number().integer().optional(),
+    width_cm: Joi.number().integer().optional(),
+    height_cm: Joi.number().integer().optional(),
+    is_active: Joi.boolean().optional(),
+    is_featured: Joi.boolean().optional(),
+    is_new: Joi.boolean().optional(),
+    is_bestseller: Joi.boolean().optional(),
+    attributes: Joi.object()
+        .keys({
+            ingredients: Joi.string().optional(),
+            usage: Joi.string().optional(),
+            variants: Joi.array()
+                .items(
+                    Joi.object({
+                        name: Joi.string(),
+                        value: Joi.string(),
+                    })
+                )
+                .optional(),
+        })
+        .optional(),
+    meta_title: Joi.string().optional(),
+    meta_description: Joi.string().optional(),
+});
+
 // Обновлённая схема для query: добавили 'newest' в valid
 const querySchema = Joi.object({
     page: Joi.number().integer().min(1).default(1),
@@ -68,20 +108,15 @@ const querySchema = Joi.object({
         )
         .default('id_desc'),
 });
-
-const getAllProducts = async (query) => {
+// Универсальные функции с isAdmin
+const getAllProducts = async (query, isAdmin = false) => {
     const { error, value } = querySchema.validate(query);
     if (error) throw new AppError(error.details[0].message, 400);
-    return productModel.getAllProducts(value);
+    return productModel.getAllProducts({ ...value, isAdmin });
 };
 
-const getAllProductsNoPagination = async () => {
-    // Новая: без пагинации
-    return productModel.getAllProductsNoPagination();
-};
-
-const getProductById = async (id) => {
-    const product = await productModel.getProductById(id);
+const getProductById = async (id, isAdmin = false) => {
+    const product = await productModel.getProductById(id, isAdmin);
     if (!product) throw new AppError('Product not found', 404);
     return product;
 };
@@ -93,15 +128,15 @@ const createProduct = async (data) => {
 };
 
 const updateProduct = async (id, data) => {
-    const { error } = productSchema.validate(data, { stripUnknown: true });
+    const { error } = updateSchema.validate(data, { allowUnknown: true });
     if (error) throw new AppError(error.details[0].message, 400);
-    const product = await productModel.getProductById(id);
+    const product = await getProductById(id); // Проверяем existence
     if (!product) throw new AppError('Product not found', 404);
     return productModel.updateProduct(id, data);
 };
 
 const deleteProduct = async (id) => {
-    const product = await productModel.getProductById(id);
+    const product = await getProductById(id);
     if (!product) throw new AppError('Product not found', 404);
     return productModel.deleteProduct(id);
 };
@@ -114,7 +149,6 @@ const searchProducts = async (query) => {
 module.exports = {
     getAllProducts,
     getProductById,
-    getAllProductsNoPagination,
     createProduct,
     updateProduct,
     deleteProduct,

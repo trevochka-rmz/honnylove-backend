@@ -1,9 +1,10 @@
 const db = require('../config/db');
 
+// Универсальная функция для получения продуктов (с параметром isAdmin для выбора view)
 const getAllProducts = async ({
     page = 1,
     limit = 9,
-    categoryId, // Новый: заменил subcategoryId и category
+    categoryId,
     brandId,
     search,
     minPrice,
@@ -13,27 +14,26 @@ const getAllProducts = async ({
     isBestseller,
     isOnSale,
     sort = 'id_desc',
+    isAdmin = false, // НОВОЕ: Флаг для админ-версии
 }) => {
-    let baseQuery = 'FROM product_view';
+    // Выбираем view в зависимости от isAdmin
+    const viewName = isAdmin ? 'admin_product_view' : 'product_view';
+    let baseQuery = `FROM ${viewName}`;
     const params = [];
     let where = '';
-    // Если categoryId задан, добавляем рекурсивный CTE для подкатегорий
     let cte = '';
     if (categoryId) {
         cte = `
-            WITH RECURSIVE subcats AS (
-                SELECT id FROM product_categories WHERE id = $${
-                    params.length + 1
-                }
-                UNION
-                SELECT c.id FROM product_categories c JOIN subcats s ON c.parent_id = s.id
-            )
-        `;
+      WITH RECURSIVE subcats AS (
+        SELECT id FROM product_categories WHERE id = $${params.length + 1}
+        UNION
+        SELECT c.id FROM product_categories c JOIN subcats s ON c.parent_id = s.id
+      )
+    `;
         params.push(categoryId);
         where +=
             (where ? ' AND' : '') + ` category_id IN (SELECT id FROM subcats)`;
     }
-    // Остальные фильтры (без изменений)
     if (brandId) {
         where += (where ? ' AND' : '') + ` brand_id = $${params.length + 1}`;
         params.push(brandId);
@@ -86,14 +86,12 @@ const getAllProducts = async ({
                 ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
         }
     }
-    // Для sort='new_random' добавляем isNew=true, если не указано
     if (sort === 'new_random' && isNew === undefined) {
         where += (where ? ' AND' : '') + ` "isNew" = $${params.length + 1}`;
         params.push(true);
     }
     if (where) baseQuery += ' WHERE' + where;
-    // Определяем ORDER BY в зависимости от sort (добавили 'newest')
-    let orderBy = ' ORDER BY id DESC'; // По умолчанию
+    let orderBy = ' ORDER BY id DESC';
     switch (sort) {
         case 'popularity':
             orderBy = ' ORDER BY "reviewCount" DESC, id DESC';
@@ -114,56 +112,44 @@ const getAllProducts = async ({
         case 'id_desc':
             orderBy = ' ORDER BY id DESC';
             break;
-        case 'newest': // Новая сортировка: по дате создания desc
+        case 'newest':
             orderBy = ' ORDER BY created_at DESC, id DESC';
             break;
         default:
             orderBy = ' ORDER BY id DESC';
     }
-    // Запрос для продуктов (с CTE если нужно)
     const dataQuery = `${cte} SELECT * ${baseQuery}${orderBy} LIMIT $${
         params.length + 1
     } OFFSET $${params.length + 2}`;
     const dataParams = [...params, limit, (page - 1) * limit];
     const { rows: products } = await db.query(dataQuery, dataParams);
-    // Запрос для total (с CTE если нужно)
     const countQuery = `${cte} SELECT COUNT(*) ${baseQuery}`;
     const { rows: countRows } = await db.query(countQuery, params);
     const total = parseInt(countRows[0].count, 10);
-    // Рассчитываем pages (если limit > 0, иначе 0)
     const pages = limit > 0 ? Math.ceil(total / limit) : 0;
-    // Рассчитываем hasMore
     const hasMore = page < pages;
     return { products, total, page, pages, limit, hasMore };
 };
 
-const getAllProductsNoPagination = async () => {
-    // Новая: все продукты без пагинации
-    const { rows: products } = await db.query(
-        'SELECT * FROM product_view ORDER BY id DESC'
-    );
-    return products;
-};
-
-const getProductById = async (id) => {
-    const { rows } = await db.query(
-        'SELECT * FROM product_view WHERE id = $1',
-        [id]
-    );
+const getProductById = async (id, isAdmin = false) => {
+    const viewName = isAdmin ? 'admin_product_view' : 'product_view';
+    const { rows } = await db.query(`SELECT * FROM ${viewName} WHERE id = $1`, [
+        id,
+    ]);
     return rows[0];
 };
 
 const createProduct = async (data) => {
-    // Дефолтные attributes
     const defaultAttributes = {
-        usage: 'в скором времени появится информация.',
-        variants: [{ name: 'Объём', value: '50 мл' }],
-        ingredients: 'Будет в скором времени',
+        usage: 'Скоро будет',
+        variants: [{ name: 'Объём', value: '50мл' }],
+        ingredients: 'Скоро будет',
     };
-    // Мержим attributes, если не указаны или частично
     data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
-
-    // Вставляем без изображений
+    data.attributes = JSON.stringify(data.attributes);
+    if (data.image_urls) {
+        data.image_urls = JSON.stringify(data.image_urls);
+    }
     const fields = Object.keys(data).join(', ');
     const values = Object.values(data);
     const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
@@ -173,8 +159,6 @@ const createProduct = async (data) => {
     );
     const created = rows[0];
     const productId = created.id;
-
-    // Генерируем пути, если не указаны
     const updates = {};
     if (!created.main_image_url) {
         updates.main_image_url = `/uploads/products/${productId}/main.jpg`;
@@ -185,9 +169,10 @@ const createProduct = async (data) => {
             `/uploads/products/${productId}/gallery/2.jpg`,
         ];
     }
-
-    // Если есть обновления — UPDATE
     if (Object.keys(updates).length > 0) {
+        if (updates.image_urls) {
+            updates.image_urls = JSON.stringify(updates.image_urls);
+        }
         const updateFields = Object.keys(updates)
             .map((key, idx) => `${key} = $${idx + 2}`)
             .join(', ');
@@ -197,22 +182,26 @@ const createProduct = async (data) => {
             [productId, ...updateValues]
         );
     }
-
-    return getProductById(productId);
+    // Создаём директории (раскомментируй если нужно)
+    // const basePath = `./uploads/products/${productId}`;
+    // const galleryPath = `${basePath}/gallery`;
+    // try {
+    //   await fs.mkdir(galleryPath, { recursive: true });
+    // } catch (err) {
+    //   console.error(err.message);
+    // }
+    return getProductById(productId, true); // Возвращаем админ-версию
 };
 
 const updateProduct = async (id, data) => {
-    // Дефолтные attributes (мержим только если attributes в data)
     if (data.attributes) {
         const defaultAttributes = {
-            usage: 'в скором времени появится информация.',
-            variants: [{ name: 'Объём', value: '50 мл' }],
-            ingredients: 'Будет в скором времени',
+            usage: 'Скоро будет',
+            variants: [{ name: 'Объём', value: '50мл' }],
+            ingredients: 'Скоро будет',
         };
         data.attributes = { ...defaultAttributes, ...data.attributes };
     }
-
-    // Генерируем пути, если не указаны в data
     if (!data.main_image_url) {
         data.main_image_url = `/uploads/products/${id}/main.jpg`;
     }
@@ -222,7 +211,12 @@ const updateProduct = async (id, data) => {
             `/uploads/products/${id}/gallery/2.jpg`,
         ];
     }
-
+    if (data.attributes) {
+        data.attributes = JSON.stringify(data.attributes);
+    }
+    if (data.image_urls) {
+        data.image_urls = JSON.stringify(data.image_urls);
+    }
     const fields = Object.keys(data)
         .map((key, idx) => `${key} = $${idx + 2}`)
         .join(', ');
@@ -231,7 +225,7 @@ const updateProduct = async (id, data) => {
         `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
         [id, ...values]
     );
-    return getProductById(id);
+    return getProductById(id, true); // Возвращаем админ-версию
 };
 
 const deleteProduct = async (id) => {
@@ -257,7 +251,6 @@ const getProductsByBrand = async (brandId) => {
 
 module.exports = {
     getAllProducts,
-    getAllProductsNoPagination,
     getProductById,
     createProduct,
     updateProduct,

@@ -47,17 +47,35 @@ const registerUser = async (data) => {
 };
 
 const adminLogin = async (credentials) => {
-    const result = await loginUser(credentials); // Сначала обычный login
-    const user = result.user;
+    const { error } = loginSchema.validate(credentials);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const user = await userModel.getUserByEmail(credentials.email);
+    if (!user) throw new AppError('Invalid credentials', 401);
+
+    const isMatch = await bcrypt.compare(
+        credentials.password,
+        user.password_hash
+    );
+    if (!isMatch) throw new AppError('Invalid credentials', 401);
+
     if (!['admin', 'manager'].includes(user.role)) {
         throw new AppError(
             'Access denied: Admin or manager role required',
             401
         );
     }
-    return result; // Возвращаем то же, если role ок
-};
 
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+    await userModel.updateRefreshToken(user.id, refreshToken);
+
+    return {
+        user: { ...user, password_hash: undefined },
+        accessToken,
+        refreshToken,
+    };
+};
 const loginUser = async (credentials) => {
     const { error } = loginSchema.validate(credentials);
     if (error) throw new AppError(error.details[0].message, 400);
