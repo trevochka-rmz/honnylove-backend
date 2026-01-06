@@ -35,7 +35,7 @@ const querySchema = Joi.object({
     limit: Joi.number().integer().min(1).max(50).default(8),
     isActive: Joi.boolean().optional(),
     search: Joi.string().optional(),
-    filter: Joi.string().valid('popular', 'new').optional(),
+    filter: Joi.string().valid('popular', 'new', 'recommended').optional(), // ← Добавили 'recommended'
 });
 
 const getAllBrands = async (query) => {

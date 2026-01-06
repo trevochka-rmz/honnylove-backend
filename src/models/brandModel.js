@@ -10,36 +10,54 @@ const getAllBrands = async ({
     let baseQuery = 'FROM product_brands b';
     const params = [];
     let where = '';
+
     if (isActive !== undefined) {
         where += (where ? ' AND' : '') + ` is_active = $${params.length + 1}`;
         params.push(isActive);
     }
+
     if (search) {
         where +=
             (where ? ' AND' : '') +
-            ` (name ILIKE $${params.length + 1} OR description ILIKE $${
-                params.length + 1
-            } OR full_description ILIKE $${params.length + 1})`;
+            ` (
+             name ILIKE $${params.length + 1} OR
+             description ILIKE $${params.length + 1} OR
+             full_description ILIKE $${params.length + 1} OR
+             EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements_text(highlights) AS elem
+               WHERE elem ILIKE $${params.length + 1}
+             )
+           )`;
+
         params.push(`%${search}%`);
     }
-    // Featured filter убрали, если не нужен (или добавь колонку)
+
     if (where) baseQuery += ' WHERE' + where;
+
     let orderBy = ' ORDER BY name ASC';
+
     if (filter === 'popular') {
         orderBy =
             ' ORDER BY (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) DESC';
     } else if (filter === 'new') {
         orderBy = ' ORDER BY created_at DESC';
+    } else if (filter === 'recommended') {
+        orderBy = ' ORDER BY is_featured DESC, name ASC';
     }
+
     const dataQuery = `
-    SELECT b.*,
-           (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount"
-    ${baseQuery}
-    ${orderBy}
-    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-  `;
+      SELECT b.*,
+             (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount"
+      ${baseQuery}
+      ${orderBy}
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
     const dataParams = [...params, limit, (page - 1) * limit];
+
     const { rows: brands } = await db.query(dataQuery, dataParams);
+
     const mappedBrands = brands.map((brand) => ({
         id: brand.id,
         name: brand.name,
@@ -51,12 +69,15 @@ const getAllBrands = async ({
         philosophy: brand.philosophy,
         highlights: brand.highlights,
         productsCount: brand.productsCount,
+        isFeatured: brand.is_featured,
     }));
+
     const countQuery = `SELECT COUNT(*) ${baseQuery}`;
     const { rows: countRows } = await db.query(countQuery, params);
     const total = parseInt(countRows[0].count, 10);
     const pages = limit > 0 ? Math.ceil(total / limit) : 0;
     const hasMore = page < pages;
+
     return { brands: mappedBrands, total, page, pages, limit, hasMore };
 };
 
