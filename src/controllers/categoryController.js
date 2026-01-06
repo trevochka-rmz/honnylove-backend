@@ -2,14 +2,15 @@
 const categoryService = require('../services/categoryService');
 const { addFullImageUrls } = require('../utils/imageUtils');
 
-// Получить все категории в формате дерева
+// Получить все категории в формате дерева для фронта
 const getAllCategoriesForFrontend = async (req, res, next) => {
     try {
         const categories = await categoryService.getAllCategoriesForFrontend();
-        const processedCategories = addFullImageUrls(categories, req);
+        const processedCategories = addFullImageUrls(categories, req); // Добавляем full URLs к image_url
 
         res.json({
             success: true,
+            count: categories.length,
             data: processedCategories,
         });
     } catch (err) {
@@ -21,7 +22,7 @@ const getAllCategoriesForFrontend = async (req, res, next) => {
 const getCategoryById = async (req, res, next) => {
     try {
         const category = await categoryService.getCategoryById(req.params.id);
-        const processedCategory = addFullImageUrls(category, req);
+        const processedCategory = addFullImageUrls(category, req); // Full URLs для image_url и children
 
         res.json({
             success: true,
@@ -32,20 +33,17 @@ const getCategoryById = async (req, res, next) => {
     }
 };
 
-// Получить список категорий (админка)
+// Получить список категорий (с пагинацией для админки)
 const getCategories = async (req, res, next) => {
     try {
-        const result = await categoryService.getAllCategories(req.query);
-        const processedResult = addFullImageUrls(result, req);
+        const { categories, total, page, pages, limit, hasMore } =
+            await categoryService.getAllCategories(req.query);
+        const processedResult = addFullImageUrls(
+            { categories, total, page, pages, limit, hasMore },
+            req
+        ); // Full URLs
 
-        res.json({
-            success: true,
-            data: processedResult,
-            meta: {
-                page: parseInt(req.query.page) || 1,
-                limit: parseInt(req.query.limit) || 10,
-            },
-        });
+        res.json(processedResult);
     } catch (err) {
         next(err);
     }
@@ -55,11 +53,12 @@ const getCategories = async (req, res, next) => {
 const createCategory = async (req, res, next) => {
     try {
         const category = await categoryService.createCategory(req.body);
+        const processedCategory = addFullImageUrls(category, req);
 
         res.status(201).json({
             success: true,
-            message: 'Категория создана',
-            data: category,
+            message: 'Категория создана успешно',
+            data: processedCategory,
         });
     } catch (err) {
         next(err);
@@ -73,11 +72,12 @@ const updateCategory = async (req, res, next) => {
             req.params.id,
             req.body
         );
+        const processedCategory = addFullImageUrls(category, req);
 
         res.json({
             success: true,
-            message: 'Категория обновлена',
-            data: category,
+            message: 'Категория обновлена успешно',
+            data: processedCategory,
         });
     } catch (err) {
         next(err);

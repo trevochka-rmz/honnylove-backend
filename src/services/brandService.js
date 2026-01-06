@@ -75,7 +75,10 @@ const deleteBrand = async (id) => {
     if (!brand) throw new AppError('Brand not found', 404);
     const products = await productModel.getProductsByBrand(id);
     if (products.length > 0)
-        throw new AppError('Brand is in use and cannot be deleted', 409);
+        throw new AppError(
+            'Бренд содержит связанные продукты. Пожалуйста, сначала обновите бренд продуктов (установите другой бренд или удалите бренд) или удалите продукты, ассоциированные с этим брендом, перед его удалением.',
+            409
+        );
     return brandModel.deleteBrand(id);
 };
 
