@@ -49,12 +49,22 @@ const deactivateUser = async (req, res, next) => {
     }
 };
 
-// НОВЫЙ ХЭНДЛЕР: Получение профиля
+// ХЭНДЛЕР: Получение профиля
 const getProfile = async (req, res, next) => {
     try {
-        // req.user приходит из middleware verifyToken (id и role)
+        // req.user.id из auth middleware (verifyToken)
         const profile = await userService.getProfile(req.user.id);
         res.json(profile);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// НОВЫЙ ХЭНДЛЕР: Обновление профиля
+const updateProfile = async (req, res, next) => {
+    try {
+        const updated = await userService.updateProfile(req.user.id, req.body);
+        res.json(updated);
     } catch (err) {
         next(err);
     }
@@ -66,5 +76,6 @@ module.exports = {
     createManager,
     updateUserRole,
     deactivateUser,
-    getProfile, // Новый экспорт
+    getProfile,
+    updateProfile, // Новый экспорт
 };

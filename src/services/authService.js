@@ -27,13 +27,13 @@ const loginSchema = Joi.object({
 });
 
 const registerUser = async (data) => {
-    const { error } = userSchema.validate(data);
+    const { error, value } = userSchema.validate(data); // Изменено: Добавили value
     if (error) throw new AppError(error.details[0].message, 400);
-    const existingUser = await userModel.getUserByEmail(data.email);
+    const existingUser = await userModel.getUserByEmail(value.email); // Используем value
     if (existingUser) throw new AppError('User already exists', 400);
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(value.password, 10); // value.password
     const newUser = await userModel.createUser({
-        ...data,
+        ...value, // Используем value с дефолтами (role='customer' если не был)
         password_hash: hashedPassword,
     });
     const accessToken = generateAccessToken(newUser);

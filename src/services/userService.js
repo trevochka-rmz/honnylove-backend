@@ -8,7 +8,7 @@ const {
     generateRefreshToken,
 } = require('../utils/jwtUtils');
 
-// Схема для создания admin/manager (без role в body)
+// Схема для создания admin/manager (добавлено discount_percentage optional)
 const adminManagerSchema = Joi.object({
     username: Joi.string().min(3).max(255).required(),
     email: Joi.string().email().required(),
@@ -17,6 +17,22 @@ const adminManagerSchema = Joi.object({
     last_name: Joi.string().optional(),
     phone: Joi.string().optional(),
     address: Joi.string().optional(),
+    discount_percentage: Joi.number()
+        .precision(2)
+        .min(0)
+        .max(100)
+        .optional()
+        .default(0.0),
+});
+
+// Схема для обновления профиля (добавлено discount_percentage optional, но лучше админам менять отдельно)
+const updateProfileSchema = Joi.object({
+    first_name: Joi.string().optional(),
+    last_name: Joi.string().optional(),
+    phone: Joi.string().optional(),
+    address: Joi.string().optional(),
+    // discount_percentage: Joi.number().precision(2).min(0).max(100).optional(), // Optional, но можно ограничить для self-update
+    // Не добавляем sensitive поля
 });
 
 const getAllUsers = async (query) => {
@@ -39,13 +55,13 @@ const deactivateUser = async (id) => {
 };
 
 const createAdmin = async (data) => {
-    const { error } = adminManagerSchema.validate(data);
+    const { error, value } = adminManagerSchema.validate(data);
     if (error) throw new AppError(error.details[0].message, 400);
-    const existingUser = await userModel.getUserByEmail(data.email);
+    const existingUser = await userModel.getUserByEmail(value.email);
     if (existingUser) throw new AppError('User already exists', 400);
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(value.password, 10);
     const newUser = await userModel.createUser({
-        ...data,
+        ...value,
         password_hash: hashedPassword,
         role: 'admin',
     });
@@ -60,23 +76,40 @@ const createAdmin = async (data) => {
 };
 
 const createManager = async (data) => {
-    const { error } = adminManagerSchema.validate(data);
+    const { error, value } = adminManagerSchema.validate(data);
     if (error) throw new AppError(error.details[0].message, 400);
-    const existingUser = await userModel.getUserByEmail(data.email);
+    const existingUser = await userModel.getUserByEmail(value.email);
     if (existingUser) throw new AppError('User already exists', 400);
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(value.password, 10);
     return userModel.createUser({
-        ...data,
+        ...value,
         password_hash: hashedPassword,
-        role: 'manager', // Фиксированно
+        role: 'manager',
     });
 };
 
-// НОВЫЙ МЕТОД: Получение профиля
+// МЕТОД: Получение профиля
 const getProfile = async (userId) => {
     const profile = await userModel.getUserProfile(userId);
     if (!profile) throw new AppError('User not found', 404);
     return profile;
+};
+
+// МЕТОД: Обновление профиля
+const updateProfile = async (userId, data) => {
+    const { error, value } = updateProfileSchema.validate(data, {
+        stripUnknown: true,
+    });
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const user = await userModel.getUserById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    // Обновляем
+    await userModel.updateUser(userId, value);
+
+    // Возвращаем обновлённый профиль
+    return getProfile(userId);
 };
 
 module.exports = {
@@ -85,5 +118,6 @@ module.exports = {
     deactivateUser,
     createAdmin,
     createManager,
-    getProfile, // Новый экспорт
+    getProfile,
+    updateProfile,
 };

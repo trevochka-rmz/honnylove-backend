@@ -7,21 +7,20 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 router.get(
     '/',
     authenticate,
-    // requireRole(['admin']),
+    requireRole(['admin']),
     userController.getAllUsers
 );
 
-router.get(
-    '/profile',
-    authenticate,
-    requireRole(['admin']),
-    userController.getProfile
-);
+// Профиль: Доступен для всех аутентифицированных (customer, admin, manager)
+router.get('/profile', authenticate, userController.getProfile);
+
+// НОВЫЙ: Обновление профиля (для всех аутентифицированных)
+router.put('/profile', authenticate, userController.updateProfile);
 
 router.post(
     '/admin/create-admin',
-    // authenticate,
-    // requireRole(['admin']),
+    authenticate,
+    requireRole(['admin']),
     userController.createAdmin
 );
 
