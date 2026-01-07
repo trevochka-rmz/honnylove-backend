@@ -1,5 +1,5 @@
 // src/services/userService.js
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const Joi = require('joi');
 const userModel = require('../models/userModel');
 const AppError = require('../utils/errorUtils');

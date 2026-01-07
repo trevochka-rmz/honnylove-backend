@@ -3,14 +3,19 @@
 /**
  * Добавляет полный URL к изображениям продукта, категории или бренда
  * @param {Object|Array} data - Данные продукта/категории/бренда или массив
- * @param {Object} req - Объект запроса Express
+ * @param {Object} req - Объект запроса Express (опционально для dev)
  * @returns {Object|Array} - Обработанные данные с полными URL
  */
 const addFullImageUrls = (data, req) => {
-    if (!data || !req) return data;
+    if (!data) return data;
 
-    // Получаем базовый URL сервера (http://localhost:3050)
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    // Берем baseUrl из env (для prod: https://honnylove.ru; для dev: из req)
+    let baseUrl = process.env.APP_BASE_URL || 'http://localhost:3050';
+
+    // Если в dev и есть req — используем динамический (для тестов)
+    if (process.env.NODE_ENV !== 'production' && req) {
+        baseUrl = `${req.protocol}://${req.get('host')}`;
+    }
 
     // Функция для добавления базового URL к пути
     const addBaseUrl = (imagePath) => {
@@ -34,7 +39,7 @@ const addFullImageUrls = (data, req) => {
         // Если путь без начального /, добавляем его
         return `${baseUrl}/${imagePath}`;
     };
-
+    
     // Функция для обработки одного объекта
     const processItem = (item) => {
         if (!item || typeof item !== 'object') {

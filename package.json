@@ -1,7 +1,7 @@
 {
     "dependencies": {
         "axios": "^1.13.2",
-        "bcrypt": "^5.1.1",
+        "bcryptjs": "^3.0.3",
         "cheerio": "^1.1.2",
         "cors": "^2.8.5",
         "dotenv": "^16.3.1",
@@ -19,6 +19,6 @@
         "nodemon": "^3.0.1"
     },
     "scripts": {
-        "start": "nodemon src/app.js"
-    }
+  "start": "nodemon src/app.js",  
+  "start:prod": "node src/app.js" }
 }
