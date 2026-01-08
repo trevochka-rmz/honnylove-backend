@@ -2,7 +2,7 @@ const Joi = require('joi');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
 
-// Схема для создания/обновления
+// Схема для создания (теперь с stockQuantity)
 const productSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().optional(),
@@ -41,6 +41,7 @@ const productSchema = Joi.object({
     .default({}),
   meta_title: Joi.string().optional(),
   meta_description: Joi.string().optional(),
+  stockQuantity: Joi.number().integer().min(0).optional(), // НОВОЕ: Для установки количества при создании
 });
 
 const updateSchema = Joi.object({
@@ -81,7 +82,7 @@ const updateSchema = Joi.object({
     .optional(),
   meta_title: Joi.string().optional(),
   meta_description: Joi.string().optional(),
-  stockQuantity: Joi.number().integer().min(0).optional(), // Для обновления количества на складе
+  stockQuantity: Joi.number().integer().min(0).optional(),
 });
 
 const querySchema = Joi.object({

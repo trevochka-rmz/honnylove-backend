@@ -76,69 +76,62 @@ const getAllUsers = async ({ page = 1, limit = 10, role }) => {
     return rows;
 };
 
-// ФУНКЦИЯ: Получение профиля с метриками (добавлено discount_percentage)
 const getUserProfile = async (id) => {
     const user = await getUserById(id);
     if (!user) return null;
-
     // Базовые данные без sensitive info
     const profile = {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        phone: user.phone,
-        address: user.address,
-        discount_percentage: user.discount_percentage, // Добавлено: Показываем процент скидки
-        is_active: user.is_active,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
-        // Исключаем password_hash, refresh_token
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      phone: user.phone,
+      address: user.address,
+      discount_percentage: user.discount_percentage, // Добавлено: Показываем процент скидки
+      is_active: user.is_active,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      // Исключаем password_hash, refresh_token
     };
-
     if (user.role === 'customer') {
-        // Метрики для клиента
-        const { rows: orderRows } = await db.query(
-            'SELECT COUNT(*) FROM orders WHERE user_id = $1',
-            [id]
-        );
-        profile.orderCount = parseInt(orderRows[0].count, 10);
-
-        const { rows: cartRows } = await db.query(
-            'SELECT SUM(quantity) FROM cart_items WHERE user_id = $1',
-            [id]
-        );
-        profile.cartCount = parseInt(cartRows[0].sum || 0, 10);
-
-        const { rows: wishlistRows } = await db.query(
-            'SELECT COUNT(*) FROM wishlist_items WHERE user_id = $1',
-            [id]
-        );
-        profile.wishlistCount = parseInt(wishlistRows[0].count, 10);
-
-        // Количество отзывов
-        const { rows: reviewRows } = await db.query(
-            'SELECT COUNT(*) FROM product_reviews WHERE user_id = $1',
-            [id]
-        );
-        profile.reviewCount = parseInt(reviewRows[0].count, 10);
-    } else if (['admin', 'manager'].includes(user.role)) {
-        // Метрики для админов/менеджеров
-        const { rows: totalUsers } = await db.query(
-            'SELECT COUNT(*) FROM users'
-        );
-        profile.totalUsers = parseInt(totalUsers[0].count, 10);
-
-        const { rows: activeOrders } = await db.query(
-            "SELECT COUNT(*) FROM orders WHERE status != 'completed' AND status != 'cancelled'"
-        );
-        profile.activeOrdersCount = parseInt(activeOrders[0].count, 10);
+      // Метрики для клиента
+      const { rows: orderRows } = await db.query(
+        'SELECT COUNT(*) FROM orders WHERE user_id = $1',
+        [id]
+      );
+      profile.orderCount = parseInt(orderRows[0].count, 10);
+      const { rows: cartRows } = await db.query(
+        'SELECT SUM(quantity) FROM cart_items WHERE user_id = $1',
+        [id]
+      );
+      profile.cartCount = parseInt(cartRows[0].sum || 0, 10);
+      const { rows: wishlistRows } = await db.query(
+        'SELECT COUNT(*) FROM wishlist_items WHERE user_id = $1',
+        [id]
+      );
+      profile.wishlistCount = parseInt(wishlistRows[0].count, 10);
+      // Количество отзывов
+      const { rows: reviewRows } = await db.query(
+        'SELECT COUNT(*) FROM product_reviews WHERE user_id = $1',
+        [id]
+      );
+      profile.reviewCount = parseInt(reviewRows[0].count, 10);
+    } 
+    else if (['admin', 'manager'].includes(user.role)) {
+      // Метрики для админов/менеджеров
+      const { rows: totalUsers } = await db.query(
+        'SELECT COUNT(*) FROM users'
+      );
+      profile.totalUsers = parseInt(totalUsers[0].count, 10);
+      const { rows: activeOrders } = await db.query(
+        "SELECT COUNT(*) FROM orders WHERE status != 'delivered' AND status != 'cancelled'"
+      );
+      profile.activeOrdersCount = parseInt(activeOrders[0].count, 10);
     }
-
     return profile;
-};
+  };
 
 module.exports = {
     getUserById,

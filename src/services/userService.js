@@ -88,29 +88,31 @@ const createManager = async (data) => {
     });
 };
 
-// МЕТОД: Получение профиля
-const getProfile = async (userId) => {
-    const profile = await userModel.getUserProfile(userId);
-    if (!profile) throw new AppError('User not found', 404);
-    return profile;
-};
-
-// МЕТОД: Обновление профиля
-const updateProfile = async (userId, data) => {
-    const { error, value } = updateProfileSchema.validate(data, {
-        stripUnknown: true,
-    });
-    if (error) throw new AppError(error.details[0].message, 400);
-
-    const user = await userModel.getUserById(userId);
-    if (!user) throw new AppError('User not found', 404);
-
-    // Обновляем
-    await userModel.updateUser(userId, value);
-
-    // Возвращаем обновлённый профиль
-    return getProfile(userId);
-};
+// ХЭНДЛЕР: Получение профиля
+const getProfile = async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({ error: 'Unauthorized - No user ID' }); // НОВОЕ: Check на req.user
+      }
+      const profile = await userService.getProfile(req.user.id);
+      res.json(profile);
+    } catch (err) {
+      next(err);
+    }
+  };
+  
+  // НОВЫЙ ХЭНДЛЕР: Обновление профиля
+  const updateProfile = async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({ error: 'Unauthorized - No user ID' }); // НОВОЕ: Check
+      }
+      const updated = await userService.updateProfile(req.user.id, req.body);
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  };
 
 module.exports = {
     getAllUsers,
