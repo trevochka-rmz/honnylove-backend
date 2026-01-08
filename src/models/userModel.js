@@ -126,7 +126,7 @@ const getUserProfile = async (id) => {
       );
       profile.totalUsers = parseInt(totalUsers[0].count, 10);
       const { rows: activeOrders } = await db.query(
-        "SELECT COUNT(*) FROM orders WHERE status != 'delivered' AND status != 'cancelled'"
+        "SELECT COUNT(*) FROM orders WHERE status != 'completed' AND status != 'cancelled'"
       );
       profile.activeOrdersCount = parseInt(activeOrders[0].count, 10);
     }

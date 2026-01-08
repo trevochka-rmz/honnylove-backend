@@ -49,24 +49,22 @@ const deactivateUser = async (req, res, next) => {
     }
 };
 
-// ХЭНДЛЕР: Получение профиля
 const getProfile = async (req, res, next) => {
     try {
         // req.user.id из auth middleware (verifyToken)
-        const profile = await userService.getProfile(req.user.id);
+        const profile = await userService.getProfile(req.user.id); // ← ВЫЗОВ СЕРВИСА
         res.json(profile);
     } catch (err) {
-        next(err);
+        next(err); // ← передаем в error handler
     }
 };
 
-// НОВЫЙ ХЭНДЛЕР: Обновление профиля
 const updateProfile = async (req, res, next) => {
     try {
         const updated = await userService.updateProfile(req.user.id, req.body);
         res.json(updated);
     } catch (err) {
-        next(err);
+        next(err); // ← передаем в error handler
     }
 };
 

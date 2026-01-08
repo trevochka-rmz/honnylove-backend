@@ -19,6 +19,7 @@ const inventoryRoutes = require('./routes/inventoryRoutes');
 const userRoutes = require('./routes/userRoutes');
 const bannersRoutes = require('./routes/bannersRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 
 dotenv.config(); // Загружает .env
 
@@ -43,6 +44,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/banners', bannersRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/blogs', settingsRoutes);
 
 // Глобальный error handler
 app.use(errorHandler);
