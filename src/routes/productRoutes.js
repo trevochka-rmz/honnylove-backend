@@ -5,44 +5,45 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 // Для клиентов
 router.get('/', (req, res, next) =>
-    productController.getProducts(req, res, next, false)
+  productController.getProducts(req, res, next, false)
 ); // isAdmin=false
 router.get('/search', productController.searchProducts);
 router.get('/:id', (req, res, next) =>
-    productController.getProductById(req, res, next, false)
+  productController.getProductById(req, res, next, false)
 ); // isAdmin=false
 
-// Для админов
+// Для админов и менеджеров (чтение)
 router.get(
-    '/admin/all',
-    authenticate,
-    requireRole(['admin', 'manager']),
-    (req, res, next) => productController.getProducts(req, res, next, true) // isAdmin=true
+  '/admin/all',
+  authenticate,
+  requireRole(['admin', 'manager']),
+  (req, res, next) => productController.getProducts(req, res, next, true) // isAdmin=true
 );
 router.get(
-    '/admin/:id',
-    authenticate,
-    requireRole(['admin', 'manager']),
-    (req, res, next) => productController.getProductById(req, res, next, true) // isAdmin=true, новый роут для single admin
+  '/admin/:id',
+  authenticate,
+  requireRole(['admin', 'manager']),
+  (req, res, next) => productController.getProductById(req, res, next, true) // isAdmin=true
 );
 
+// Только для админов (create, update, delete)
 router.post(
-    '/',
-    authenticate,
-    requireRole(['admin', 'manager']),
-    productController.createProduct
+  '/',
+  authenticate,
+  requireRole(['admin']),
+  productController.createProduct
 );
 router.put(
-    '/:id',
-    authenticate,
-    requireRole(['admin', 'manager']),
-    productController.updateProduct
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  productController.updateProduct
 );
 router.delete(
-    '/:id',
-    authenticate,
-    requireRole(['admin', 'manager']),
-    productController.deleteProduct
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  productController.deleteProduct
 );
 
 module.exports = router;
