@@ -1,18 +1,13 @@
-// src/services/orderService.js
-// Бизнес-логика: Валидация, транзакции, проверки, расчёты.
-// Улучшения: Полный расчёт total с новыми полями, резерв по inventory, возврат при ошибке/отмене, админ-функции.
-
+// src/services/orderService.js (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 const Joi = require('joi');
-const orderModel = require('../models/orderModel');
-const cartService = require('./cartService');
+const db = require('../config/db');
 const AppError = require('../utils/errorUtils');
-const db = require('../config/db'); // Для pool.connect()
 
-// Схема валидации для checkout
+// Схема валидации
 const checkoutSchema = Joi.object({
   shipping_address: Joi.string().min(10).required(),
   payment_method: Joi.string().valid('card', 'cash', 'online').required(),
-  notes: Joi.string().optional(),
+  notes: Joi.string().optional().allow(''),
   shipping_cost: Joi.number().min(0).default(0),
   tax_amount: Joi.number().min(0).default(0),
   discount_amount: Joi.number().min(0).default(0),
@@ -21,136 +16,342 @@ const checkoutSchema = Joi.object({
 // Создание заказа из корзины
 const createOrder = async (userId, data) => {
   const { error, value } = checkoutSchema.validate(data);
-  if (error) throw new AppError(error.details[0].message, 400);
+  if (error) {
+    throw new AppError(error.details[0].message, 400);
+  }
 
-  const cart = await cartService.getCart(userId);
-  if (!cart.hasItems) throw new AppError('Корзина пуста', 400);
-
-  // Расчёт total_amount с учётом полей
-  let subtotal = 0;
-  const itemsWithPrices = cart.items.map(item => {
-    const price = item.product.discountPrice || item.product.price;
-    subtotal += price * item.quantity;
-    return { ...item, price, discount_price: item.product.discountPrice };
-  });
-  const total_amount = subtotal + value.shipping_cost + value.tax_amount - value.discount_amount;
-
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
+    // 1. Получаем товары из корзины с ценами
+    const cartItems = await db.query(`
+      SELECT 
+        ci.*,
+        pp.retail_price,
+        pp.discount_price,
+        pp.name as product_name,
+        COALESCE(pp.discount_price, pp.retail_price) as final_price
+      FROM cart_items ci
+      JOIN product_products pp ON ci.product_id = pp.id
+      WHERE ci.user_id = $1
+    `, [userId]);
 
-    // Проверка и уменьшение inventory
-    for (const item of itemsWithPrices) {
-      // Проверка наличия (inventoryService не нужен, если SUM в model; но для примера)
-      const res = await client.query(`
-        SELECT SUM(pi.quantity) AS total FROM product_inventory pi
-        JOIN product_locations pl ON pi.location_id = pl.id
-        WHERE pi.product_id = $1 AND pl.is_active = true
-      `, [item.product_id]);
-      const available = parseInt(res.rows[0].total) || 0;
-      if (available < item.quantity) throw new AppError(`Недостаточно товара ${item.product.name} (доступно: ${available})`, 400);
-
-      await orderModel.decreaseInventory(client, item.product_id, item.quantity);
+    if (!cartItems.rows || cartItems.rows.length === 0) {
+      throw new AppError('Корзина пуста', 400);
     }
 
-    // Создание заказа
-    const order = await orderModel.createOrder(client, {
-      user_id,
-      total_amount,
-      shipping_address: value.shipping_address,
-      payment_method: value.payment_method,
-      shipping_cost: value.shipping_cost,
-      tax_amount: value.tax_amount,
-      discount_amount: value.discount_amount,
-      notes: value.notes,
+    // 2. Проверяем наличие товаров на складе
+    for (const item of cartItems.rows) {
+      const inventoryRes = await db.query(`
+        SELECT COALESCE(SUM(quantity), 0) as total 
+        FROM product_inventory 
+        WHERE product_id = $1
+      `, [item.product_id]);
+
+      const available = parseInt(inventoryRes.rows[0].total, 10);
+      if (available < item.quantity) {
+        throw new AppError(`Недостаточно товара "${item.product_name}" на складе. Доступно: ${available}, нужно: ${item.quantity}`, 400);
+      }
+    }
+
+    // 3. Расчет суммы
+    let subtotal = 0;
+    cartItems.rows.forEach(item => {
+      subtotal += item.final_price * item.quantity;
     });
 
-    // Добавление items
-    for (const item of itemsWithPrices) {
-      await orderModel.addOrderItem(client, {
-        order_id: order.id,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        price: item.price,
-        discount_price: item.discount_price,
-      });
+    const total_amount = subtotal + value.shipping_cost + value.tax_amount - value.discount_amount;
+
+    // 4. Создаем заказ
+    const orderRes = await db.query(`
+      INSERT INTO orders (
+        user_id, status, total_amount, shipping_address, 
+        payment_method, shipping_cost, tax_amount, 
+        discount_amount, notes, created_at, updated_at
+      ) VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `, [
+      userId, total_amount, value.shipping_address, 
+      value.payment_method, value.shipping_cost, 
+      value.tax_amount, value.discount_amount, value.notes || ''
+    ]);
+
+    const order = orderRes.rows[0];
+
+    // 5. Добавляем товары в заказ
+    for (const item of cartItems.rows) {
+      await db.query(`
+        INSERT INTO order_items (
+          order_id, product_id, quantity, price, discount_price
+        ) VALUES ($1, $2, $3, $4, $5)
+      `, [
+        order.id, item.product_id, item.quantity, 
+        item.retail_price, item.discount_price
+      ]);
+
+      // 6. Уменьшаем количество на складе
+      await db.query(`
+        UPDATE product_inventory 
+        SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
+        WHERE product_id = $2 AND location_id = 1
+      `, [item.quantity, item.product_id]);
     }
 
-    // Лог статуса
-    await orderModel.addStatusHistory(client, order.id, 'pending');
+    // 7. Добавляем в историю статусов
+    await db.query(`
+      INSERT INTO order_status_history (order_id, status, user_id)
+      VALUES ($1, 'pending', $2)
+    `, [order.id, userId]);
 
-    // Очистка корзины
-    await cartService.clearCart(userId); // Но в транзакции? Если cart в той же БД — добавь DELETE здесь
+    // 8. Очищаем корзину
+    await db.query('DELETE FROM cart_items WHERE user_id = $1', [userId]);
 
-    await client.query('COMMIT');
-    return order;
+    // 9. Получаем детали созданного заказа
+    const orderDetails = await db.query(`
+      SELECT 
+        o.*,
+        json_agg(
+          json_build_object(
+            'product_id', oi.product_id,
+            'product_name', pp.name,
+            'quantity', oi.quantity,
+            'price', oi.price,
+            'discount_price', oi.discount_price,
+            'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
+          )
+        ) as items
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN product_products pp ON oi.product_id = pp.id
+      WHERE o.id = $1
+      GROUP BY o.id
+    `, [order.id]);
+
+    return {
+      success: true,
+      message: 'Заказ успешно оформлен',
+      order: orderDetails.rows[0],
+      order_number: `ORD-${String(order.id).padStart(6, '0')}`
+    };
+
   } catch (err) {
-    await client.query('ROLLBACK');
-    // Возврат inventory при ошибке
-    for (const item of itemsWithPrices) {
-      try {
-        await client.query(`
-          UPDATE product_inventory
-          SET quantity = quantity + $1
-          WHERE product_id = $2
-          LIMIT 1
-        `, [item.quantity, item.product_id]);
-      } catch {} // Игнор ошибки возврата
+    console.error('Ошибка при создании заказа:', err);
+    if (err instanceof AppError) {
+      throw err;
     }
-    throw err;
-  } finally {
-    client.release();
+    throw new AppError('Произошла ошибка при оформлении заказа: ' + err.message, 500);
   }
 };
 
-// Получение заказов пользователя
+// Получить заказы пользователя
 const getUserOrders = async (userId) => {
-  return orderModel.getUserOrders(userId);
-};
-
-// Получение всех заказов (админ)
-const getAllOrders = async (status) => {
-  return orderModel.getAllOrders(status);
-};
-
-// Получение деталей заказа (админ или user)
-const getOrderDetails = async (orderId, userId = null, role) => {
-  const order = await orderModel.getOrderById(orderId);
-  if (!order) throw new AppError('Заказ не найден', 404);
-  if (role !== 'admin' && role !== 'manager' && order.user_id !== userId) throw new AppError('Доступ запрещён', 403);
-  return order;
-};
-
-// Обновление статуса (админ)
-const updateOrderStatus = async (orderId, newStatus, changerUserId) => {
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
-    const updatedOrder = await orderModel.updateOrderStatus(client, orderId, newStatus);
-    await orderModel.addStatusHistory(client, orderId, newStatus, changerUserId);
+    const ordersRes = await db.query(`
+      SELECT 
+        o.*,
+        json_agg(
+          json_build_object(
+            'product_id', oi.product_id,
+            'product_name', pp.name,
+            'product_image', pp.main_image_url,
+            'quantity', oi.quantity,
+            'price', oi.price,
+            'discount_price', oi.discount_price,
+            'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
+          )
+        ) as items
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN product_products pp ON oi.product_id = pp.id
+      WHERE o.user_id = $1
+      GROUP BY o.id
+      ORDER BY o.created_at DESC
+    `, [userId]);
 
-    // Если cancelled — возврат inventory
-    if (newStatus === 'cancelled') {
-      await orderModel.returnInventory(client, updatedOrder.items || await orderModel.getOrderItems(orderId));
-    }
-
-    await client.query('COMMIT');
-    return updatedOrder;
+    return {
+      success: true,
+      orders: ordersRes.rows,
+      count: ordersRes.rows.length
+    };
   } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+    console.error('Ошибка при получении заказов:', err);
+    throw new AppError('Не удалось получить заказы', 500);
   }
 };
 
-// Отмена заказа (user)
-const cancelOrder = async (userId, orderId) => {
-  const order = await orderModel.getOrderById(orderId);
-  if (!order || order.user_id !== userId) throw new AppError('Заказ не найден или доступ запрещён', 404);
-  if (!['pending', 'processing'].includes(order.status)) throw new AppError('Нельзя отменить', 400);
+// Получить детали заказа
+const getOrderDetails = async (orderId, userId = null, role = 'customer') => {
+  try {
+    const orderRes = await db.query(`
+      SELECT 
+        o.*,
+        u.email as user_email,
+        u.first_name,
+        u.last_name,
+        json_agg(
+          json_build_object(
+            'product_id', oi.product_id,
+            'product_name', pp.name,
+            'product_sku', pp.sku,
+            'product_image', pp.main_image_url,
+            'quantity', oi.quantity,
+            'price', oi.price,
+            'discount_price', oi.discount_price,
+            'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
+          )
+        ) as items
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN product_products pp ON oi.product_id = pp.id
+      WHERE o.id = $1
+      GROUP BY o.id, u.id
+    `, [orderId]);
 
-  return updateOrderStatus(orderId, 'cancelled', userId); // Переиспользуем админ-функцию
+    if (!orderRes.rows[0]) {
+      throw new AppError('Заказ не найден', 404);
+    }
+
+    const order = orderRes.rows[0];
+    
+    // Проверка прав доступа
+    const isAdmin = role === 'admin' || role === 'manager';
+    const isOwner = order.user_id === userId;
+    
+    if (!isAdmin && !isOwner) {
+      throw new AppError('У вас нет доступа к этому заказу', 403);
+    }
+
+    return {
+      success: true,
+      order: order
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    console.error('Ошибка при получении деталей заказа:', err);
+    throw new AppError('Не удалось получить детали заказа', 500);
+  }
+};
+
+// Получить все заказы (для админа)
+const getAllOrders = async (status = null) => {
+  try {
+    let query = `
+      SELECT 
+        o.*,
+        u.email as user_email,
+        u.first_name,
+        u.last_name,
+        COUNT(oi.id) as items_count,
+        SUM(oi.quantity) as total_quantity
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+    `;
+    
+    let params = [];
+    
+    if (status) {
+      query += ` WHERE o.status = $1`;
+      params.push(status);
+    }
+    
+    query += ` GROUP BY o.id, u.id ORDER BY o.created_at DESC`;
+    
+    const ordersRes = await db.query(query, params);
+
+    return {
+      success: true,
+      orders: ordersRes.rows,
+      count: ordersRes.rows.length
+    };
+  } catch (err) {
+    console.error('Ошибка при получении всех заказов:', err);
+    throw new AppError('Не удалось получить заказы', 500);
+  }
+};
+
+// Обновить статус заказа (для админа)
+const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') => {
+  const allowedStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'completed'];
+  
+  if (!allowedStatuses.includes(newStatus)) {
+    throw new AppError(`Недопустимый статус. Допустимые: ${allowedStatuses.join(', ')}`, 400);
+  }
+
+  try {
+    // Получаем текущий заказ
+    const orderRes = await db.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    if (!orderRes.rows[0]) {
+      throw new AppError('Заказ не найден', 404);
+    }
+
+    const currentOrder = orderRes.rows[0];
+
+    // Обновляем статус
+    const updateRes = await db.query(`
+      UPDATE orders 
+      SET status = $1, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = $2 
+      RETURNING *
+    `, [newStatus, orderId]);
+
+    // Добавляем в историю
+    await db.query(`
+      INSERT INTO order_status_history (order_id, status, user_id)
+      VALUES ($1, $2, $3)
+    `, [orderId, newStatus, changerUserId]);
+
+    // Если отменяем - возвращаем товары на склад
+    if (newStatus === 'cancelled' && currentOrder.status !== 'cancelled') {
+      const itemsRes = await db.query('SELECT * FROM order_items WHERE order_id = $1', [orderId]);
+      
+      for (const item of itemsRes.rows) {
+        await db.query(`
+          UPDATE product_inventory 
+          SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
+          WHERE product_id = $2 AND location_id = 1
+        `, [item.quantity, item.product_id]);
+      }
+    }
+
+    return {
+      success: true,
+      message: `Статус заказа обновлен на "${newStatus}"`,
+      order: updateRes.rows[0]
+    };
+  } catch (err) {
+    console.error('Ошибка при обновлении статуса:', err);
+    throw new AppError('Не удалось обновить статус заказа', 500);
+  }
+};
+
+// Отменить заказ (для пользователя)
+const cancelOrder = async (userId, orderId, reason = '') => {
+  try {
+    // Проверяем права
+    const orderRes = await db.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    if (!orderRes.rows[0] || orderRes.rows[0].user_id !== userId) {
+      throw new AppError('Заказ не найден или доступ запрещен', 404);
+    }
+
+    const order = orderRes.rows[0];
+    
+    // Проверяем возможность отмены
+    const cancellableStatuses = ['pending', 'paid', 'processing'];
+    if (!cancellableStatuses.includes(order.status)) {
+      throw new AppError(`Нельзя отменить заказ в статусе "${order.status}"`, 400);
+    }
+
+    // Отменяем
+    return await updateOrderStatus(orderId, 'cancelled', userId, reason);
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    console.error('Ошибка при отмене заказа:', err);
+    throw new AppError('Не удалось отменить заказ', 500);
+  }
 };
 
 module.exports = {
@@ -160,4 +361,5 @@ module.exports = {
   getOrderDetails,
   updateOrderStatus,
   cancelOrder,
+  ORDER_STATUSES: ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'completed']
 };

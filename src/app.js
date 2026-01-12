@@ -44,7 +44,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/banners', bannersRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/blogs', settingsRoutes);
+app.use('/api/blogs', blogRoutes);
 
 // Глобальный error handler
 app.use(errorHandler);
