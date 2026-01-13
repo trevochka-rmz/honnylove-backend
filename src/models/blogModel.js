@@ -29,10 +29,28 @@ const getAllBlogPosts = async ({
     params.push(category);
   }
 
-  // Фильтр по тегам (пересечение)
-  if (tags && Array.isArray(tags) && tags.length > 0) {
-    where += (where ? ' AND' : '') + ` tags && $${params.length + 1}`;
-    params.push(tags);
+  // Фильтр по тегам 
+  if (tags) {
+    let tagsArray;
+    
+    // Проверяем разные форматы приходящего параметра
+    if (Array.isArray(tags)) {
+      tagsArray = tags;
+    } else if (typeof tags === 'string') {
+      // Если строка, может быть "путешествия" или "путешествия,отдых"
+      if (tags.includes(',')) {
+        tagsArray = tags.split(',').map(tag => tag.trim());
+      } else {
+        tagsArray = [tags];
+      }
+    }
+    
+    // Применяем фильтр только если есть теги
+    if (tagsArray && tagsArray.length > 0) {
+      // Используем оператор && для поиска хотя бы одного совпадения
+      where += (where ? ' AND' : '') + ` tags && $${params.length + 1}`;
+      params.push(tagsArray);
+    }
   }
 
   if (where) baseQuery += ' WHERE' + where;

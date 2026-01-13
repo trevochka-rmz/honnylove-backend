@@ -110,11 +110,12 @@ const createOrder = async (userId, data) => {
         o.*,
         json_agg(
           json_build_object(
-            'product_id', oi.product_id,
-            'product_name', pp.name,
+            'productId', oi.product_id,
+            'productName', pp.name,
+            'productImage', pp.main_image_url,
             'quantity', oi.quantity,
             'price', oi.price,
-            'discount_price', oi.discount_price,
+            'discountPrice', oi.discount_price,
             'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
           )
         ) as items
@@ -149,12 +150,12 @@ const getUserOrders = async (userId) => {
         o.*,
         json_agg(
           json_build_object(
-            'product_id', oi.product_id,
-            'product_name', pp.name,
-            'product_image', pp.main_image_url,
+            'productId', oi.product_id,
+            'productName', pp.name,
+            'productImage', pp.main_image_url,
             'quantity', oi.quantity,
             'price', oi.price,
-            'discount_price', oi.discount_price,
+            'discountPrice', oi.discount_price,
             'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
           )
         ) as items
@@ -165,6 +166,7 @@ const getUserOrders = async (userId) => {
       GROUP BY o.id
       ORDER BY o.created_at DESC
     `, [userId]);
+
 
     return {
       success: true,
@@ -184,17 +186,16 @@ const getOrderDetails = async (orderId, userId = null, role = 'customer') => {
       SELECT 
         o.*,
         u.email as user_email,
-        u.first_name,
-        u.last_name,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
         json_agg(
           json_build_object(
-            'product_id', oi.product_id,
-            'product_name', pp.name,
-            'product_sku', pp.sku,
-            'product_image', pp.main_image_url,
+            'productId', oi.product_id,
+            'productName', pp.name,
+            'productImage', pp.main_image_url,
             'quantity', oi.quantity,
             'price', oi.price,
-            'discount_price', oi.discount_price,
+            'discountPrice', oi.discount_price,
             'subtotal', oi.quantity * COALESCE(oi.discount_price, oi.price)
           )
         ) as items

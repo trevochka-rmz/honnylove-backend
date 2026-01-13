@@ -8,7 +8,7 @@ const productSchema = Joi.object({
   description: Joi.string().optional(),
   purchase_price: Joi.number().positive().required(),
   retail_price: Joi.number().positive().required(),
-  discount_price: Joi.number().positive().optional(),
+  discount_price: Joi.number().min(0).allow(null).optional(), // ИЗМЕНЕНО: .min(0) вместо .positive(), + .allow(null)
   brand_id: Joi.number().integer().required(),
   category_id: Joi.number().integer().required(),
   supplier_id: Joi.number().integer().optional(),
@@ -49,7 +49,7 @@ const updateSchema = Joi.object({
   description: Joi.string().optional(),
   purchase_price: Joi.number().positive().optional(),
   retail_price: Joi.number().positive().optional(),
-  discount_price: Joi.number().positive().optional(),
+  discount_price: Joi.number().min(0).allow(null).optional(), // ИЗМЕНЕНО: .min(0) вместо .positive(), + .allow(null)
   brand_id: Joi.number().integer().optional(),
   category_id: Joi.number().integer().optional(),
   supplier_id: Joi.number().integer().optional(),

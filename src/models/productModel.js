@@ -1,4 +1,5 @@
 const db = require('../config/db');
+
 // Универсальная функция для получения продуктов (с параметром isAdmin для выбора view)
 const getAllProducts = async ({
   page = 1,
@@ -37,19 +38,19 @@ const getAllProducts = async ({
     params.push(brandId);
   }
   if (search) {
-    where += (where ? ' AND' : '') + 
-      ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
-      ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
+    where += (where ? ' AND' : '') +
+    ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
+    ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
     params.push(`%${search}%`);
   }
   if (minPrice) {
-    where += (where ? ' AND' : '') + 
-      ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
+    where += (where ? ' AND' : '') +
+    ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
     params.push(minPrice);
   }
   if (maxPrice) {
-    where += (where ? ' AND' : '') + 
-      ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
+    where += (where ? ' AND' : '') +
+    ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
     params.push(maxPrice);
   }
   if (isFeatured !== undefined) {
@@ -66,11 +67,11 @@ const getAllProducts = async ({
   }
   if (isOnSale !== undefined) {
     if (isOnSale) {
-      where += (where ? ' AND' : '') + 
-        ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
+      where += (where ? ' AND' : '') +
+      ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
     } else {
-      where += (where ? ' AND' : '') + 
-        ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
+      where += (where ? ' AND' : '') +
+      ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
     }
   }
   if (sort === 'new_random' && isNew === undefined) {
@@ -112,88 +113,86 @@ const getAllProducts = async ({
   const total = parseInt(countRows[0].count, 10);
   const pages = limit > 0 ? Math.ceil(total / limit) : 0;
   const hasMore = page < pages;
-
   products.forEach(product => {
     if (product.stockQuantity !== undefined) {
       product.stockQuantity = Number(product.stockQuantity) || 0; // String -> number, null -> 0
     }
   });
-
   return { products, total, page, pages, limit, hasMore };
 };
 
 const getProductById = async (id, isAdmin = false) => {
-    const viewName = isAdmin ? 'admin_product_view' : 'product_view';
-    const { rows } = await db.query(`SELECT * FROM ${viewName} WHERE id = $1`, [id]);
-    let product = rows[0];
-  
-    // Преобразование stockQuantity в number, если поле существует
-    if (product && product.stockQuantity !== undefined) {
-      product.stockQuantity = Number(product.stockQuantity) || 0;
-    }
-  
-    return product;
-  };
+  const viewName = isAdmin ? 'admin_product_view' : 'product_view';
+  const { rows } = await db.query(`SELECT * FROM ${viewName} WHERE id = $1`, [id]);
+  let product = rows[0];
+  // Преобразование stockQuantity в number, если поле существует
+  if (product && product.stockQuantity !== undefined) {
+    product.stockQuantity = Number(product.stockQuantity) || 0;
+  }
+  return product;
+};
 
 const createProduct = async (data) => {
-    const defaultAttributes = {
-      usage: 'Скоро будет',
-      variants: [{ name: 'Объём', value: '50мл' }],
-      ingredients: 'Скоро будет',
-    };
-    data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
-    data.attributes = JSON.stringify(data.attributes);
-    if (data.image_urls) {
-      data.image_urls = JSON.stringify(data.image_urls);
+  const defaultAttributes = {
+    usage: 'Скоро будет',
+    variants: [{ name: 'Объём', value: '50мл' }],
+    ingredients: 'Скоро будет',
+  };
+  data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
+  data.attributes = JSON.stringify(data.attributes);
+  if (data.image_urls) {
+    data.image_urls = JSON.stringify(data.image_urls);
+  }
+  // НОВОЕ: Если discount_price === 0, устанавливаем в null (сброс скидки)
+  if (data.discount_price === 0) {
+    data.discount_price = null;
+  }
+  const fields = Object.keys(data).join(', ');
+  const values = Object.values(data);
+  const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
+  const { rows } = await db.query(
+    `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
+    values
+  );
+  const created = rows[0];
+  const productId = created.id;
+  const updates = {};
+  if (!created.main_image_url) {
+    updates.main_image_url = `/uploads/products/${productId}/main.jpg`;
+  }
+  if (!created.image_urls || created.image_urls.length === 0) {
+    updates.image_urls = [
+      `/uploads/products/${productId}/gallery/1.jpg`,
+      `/uploads/products/${productId}/gallery/2.jpg`,
+    ];
+  }
+  if (Object.keys(updates).length > 0) {
+    if (updates.image_urls) {
+      updates.image_urls = JSON.stringify(updates.image_urls);
     }
-    const fields = Object.keys(data).join(', ');
-    const values = Object.values(data);
-    const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
-    const { rows } = await db.query(
-      `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
-      values
+    const updateFields = Object.keys(updates)
+      .map((key, idx) => `${key} = $${idx + 2}`)
+      .join(', ');
+    const updateValues = Object.values(updates);
+    await db.query(
+      `UPDATE product_products SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [productId, ...updateValues]
     );
-    const created = rows[0];
-    const productId = created.id;
-    const updates = {};
-    if (!created.main_image_url) {
-      updates.main_image_url = `/uploads/products/${productId}/main.jpg`;
+  }
+  // НОВОЕ: Если stockQuantity передано, обновляем inventory (триггер уже создал запись с 0)
+  if (data.stockQuantity !== undefined) {
+    const quantity = parseInt(data.stockQuantity, 10);
+    if (isNaN(quantity) || quantity < 0) {
+      throw new Error('Invalid stockQuantity');
     }
-    if (!created.image_urls || created.image_urls.length === 0) {
-      updates.image_urls = [
-        `/uploads/products/${productId}/gallery/1.jpg`,
-        `/uploads/products/${productId}/gallery/2.jpg`,
-      ];
-    }
-    if (Object.keys(updates).length > 0) {
-      if (updates.image_urls) {
-        updates.image_urls = JSON.stringify(updates.image_urls);
-      }
-      const updateFields = Object.keys(updates)
-        .map((key, idx) => `${key} = $${idx + 2}`)
-        .join(', ');
-      const updateValues = Object.values(updates);
-      await db.query(
-        `UPDATE product_products SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [productId, ...updateValues]
-      );
-    }
-  
-    // НОВОЕ: Если stockQuantity передано, обновляем inventory (триггер уже создал запись с 0)
-    if (data.stockQuantity !== undefined) {
-      const quantity = parseInt(data.stockQuantity, 10);
-      if (isNaN(quantity) || quantity < 0) {
-        throw new Error('Invalid stockQuantity');
-      }
-      await db.query(
-        'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-        [quantity, productId, 1]
-      );
-    }
-    // Если не передано — остаётся 0 от триггера
-  
-    return getProductById(productId, true); // Возвращаем админ-версию
- };
+    await db.query(
+      'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
+      [quantity, productId, 1]
+    );
+  }
+  // Если не передано — остаётся 0 от триггера
+  return getProductById(productId, true); // Возвращаем админ-версию
+};
 
 const updateProduct = async (id, data) => {
   // Обработка stockQuantity, если передано
@@ -219,7 +218,6 @@ const updateProduct = async (id, data) => {
     }
     delete data.stockQuantity; // Удаляем, чтобы не обновлять в product_products
   }
-
   if (data.attributes) {
     const defaultAttributes = {
       usage: 'Скоро будет',
@@ -236,6 +234,10 @@ const updateProduct = async (id, data) => {
       `/uploads/products/${id}/gallery/1.jpg`,
       `/uploads/products/${id}/gallery/2.jpg`,
     ];
+  }
+  // НОВОЕ: Если discount_price === 0, устанавливаем в null (сброс скидки)
+  if (data.discount_price === 0) {
+    data.discount_price = null;
   }
   if (data.attributes) {
     data.attributes = JSON.stringify(data.attributes);

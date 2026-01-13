@@ -33,6 +33,10 @@ const querySchema = Joi.object({
   category: Joi.string().optional(),
   search: Joi.string().optional(),
   filter: Joi.string().valid('popular', 'new').optional(),
+  tags: Joi.alternatives().try(
+    Joi.string(), 
+    Joi.array().items(Joi.string()) 
+  ).optional(),
 });
 
 const getAllBlogPosts = async (query) => {

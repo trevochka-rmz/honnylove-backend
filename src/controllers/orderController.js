@@ -1,5 +1,6 @@
 // src/controllers/orderController.js
 const orderService = require('../services/orderService');
+const { processOrderImages, processOrdersImages } = require('../utils/orderImageUtils');
 
 /**
  * @desc    Оформить заказ из корзины
@@ -10,13 +11,15 @@ const checkout = async (req, res, next) => {
   try {
     const result = await orderService.createOrder(req.user.id, req.body);
     
+    // Обрабатываем изображения в заказе
+    if (result.data && result.data.order) {
+      result.data.order = processOrderImages(result.data.order, req);
+    }
+    
     res.status(201).json({
       success: true,
       message: result.message,
-      data: {
-        order: result.order,
-        order_number: result.order_number
-      }
+      data: result.data
     });
   } catch (err) {
     next(err);
@@ -34,9 +37,12 @@ const getMyOrders = async (req, res, next) => {
     
     const result = await orderService.getUserOrders(req.user.id, page, limit);
     
+    // Обрабатываем изображения в заказах
+    const processedOrders = processOrdersImages(result.orders, req);
+    
     res.json({
       success: true,
-      data: result.orders,
+      data: processedOrders,
       pagination: result.pagination
     });
   } catch (err) {
@@ -57,9 +63,12 @@ const getOrder = async (req, res, next) => {
       req.user.role
     );
     
+    // Обрабатываем изображения в заказе
+    const processedOrder = processOrderImages(result.order, req);
+    
     res.json({
       success: true,
-      data: result.order,
+      data: processedOrder,
       accessible: result.accessible
     });
   } catch (err) {
@@ -82,14 +91,15 @@ const cancelOrder = async (req, res, next) => {
       reason || ''
     );
     
+    // Обрабатываем изображения в заказе
+    if (result.data && result.data.order) {
+      result.data.order = processOrderImages(result.data.order, req);
+    }
+    
     res.json({
       success: true,
       message: result.message,
-      data: {
-        order: result.order,
-        previous_status: result.previous_status,
-        new_status: result.new_status
-      }
+      data: result.data
     });
   } catch (err) {
     next(err);
@@ -107,9 +117,12 @@ const getAllOrders = async (req, res, next) => {
     
     const result = await orderService.getAllOrders(status, page, limit);
     
+    // Обрабатываем изображения в заказах
+    const processedOrders = processOrdersImages(result.orders, req);
+    
     res.json({
       success: true,
-      data: result.orders,
+      data: processedOrders,
       pagination: result.pagination
     });
   } catch (err) {
@@ -130,9 +143,12 @@ const getOrderDetails = async (req, res, next) => {
       req.user.role
     );
     
+    // Обрабатываем изображения в заказе
+    const processedOrder = processOrderImages(result.order, req);
+    
     res.json({
       success: true,
-      data: result.order
+      data: processedOrder
     });
   } catch (err) {
     next(err);
@@ -162,14 +178,15 @@ const updateOrderStatus = async (req, res, next) => {
       notes || ''
     );
     
+    // Обрабатываем изображения в заказе
+    if (result.data && result.data.order) {
+      result.data.order = processOrderImages(result.data.order, req);
+    }
+    
     res.json({
       success: true,
       message: result.message,
-      data: {
-        order: result.order,
-        previous_status: result.previous_status,
-        new_status: result.new_status
-      }
+      data: result.data
     });
   } catch (err) {
     next(err);
