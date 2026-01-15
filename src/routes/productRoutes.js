@@ -8,9 +8,9 @@ router.get('/', (req, res, next) =>
   productController.getProducts(req, res, next, false)
 ); // isAdmin=false
 router.get('/search', productController.searchProducts);
-router.get('/:id', (req, res, next) =>
-  productController.getProductById(req, res, next, false)
-); // isAdmin=false
+router.get('/:identifier', (req, res, next) =>
+  productController.getProductByIdentifier(req, res, next, false)
+); // Изменили на :identifier, isAdmin=false
 
 // Для админов и менеджеров (чтение)
 router.get(
@@ -20,10 +20,10 @@ router.get(
   (req, res, next) => productController.getProducts(req, res, next, true) // isAdmin=true
 );
 router.get(
-  '/admin/:id',
+  '/admin/:identifier',
   authenticate,
   requireRole(['admin', 'manager']),
-  (req, res, next) => productController.getProductById(req, res, next, true) // isAdmin=true
+  (req, res, next) => productController.getProductByIdentifier(req, res, next, true) // Изменили на :identifier, isAdmin=true
 );
 
 // Только для админов (create, update, delete)

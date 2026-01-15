@@ -39,18 +39,18 @@ const getAllProducts = async ({
   }
   if (search) {
     where += (where ? ' AND' : '') +
-    ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
-    ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
+      ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
+      ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
     params.push(`%${search}%`);
   }
   if (minPrice) {
     where += (where ? ' AND' : '') +
-    ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
+      ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
     params.push(minPrice);
   }
   if (maxPrice) {
     where += (where ? ' AND' : '') +
-    ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
+      ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
     params.push(maxPrice);
   }
   if (isFeatured !== undefined) {
@@ -68,10 +68,10 @@ const getAllProducts = async ({
   if (isOnSale !== undefined) {
     if (isOnSale) {
       where += (where ? ' AND' : '') +
-      ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
+        ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
     } else {
       where += (where ? ' AND' : '') +
-      ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
+        ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
     }
   }
   if (sort === 'new_random' && isNew === undefined) {
@@ -121,14 +121,30 @@ const getAllProducts = async ({
   return { products, total, page, pages, limit, hasMore };
 };
 
-const getProductById = async (id, isAdmin = false) => {
+// НОВАЯ: Универсальная функция для поиска по id или slug
+const getProductByIdentifier = async (identifier, isAdmin = false) => {
   const viewName = isAdmin ? 'admin_product_view' : 'product_view';
-  const { rows } = await db.query(`SELECT * FROM ${viewName} WHERE id = $1`, [id]);
+  let query;
+  let param = identifier;
+
+  // Проверяем, является ли identifier числом (id)
+  const idNum = parseInt(identifier, 10);
+  if (!isNaN(idNum)) {
+    query = `SELECT * FROM ${viewName} WHERE id = $1`;
+    param = idNum; // Используем число
+  } else {
+    query = `SELECT * FROM ${viewName} WHERE slug = $1`;
+    // param остается строкой (slug)
+  }
+
+  const { rows } = await db.query(query, [param]);
   let product = rows[0];
+
   // Преобразование stockQuantity в number, если поле существует
   if (product && product.stockQuantity !== undefined) {
     product.stockQuantity = Number(product.stockQuantity) || 0;
   }
+
   return product;
 };
 
@@ -191,7 +207,7 @@ const createProduct = async (data) => {
     );
   }
   // Если не передано — остаётся 0 от триггера
-  return getProductById(productId, true); // Возвращаем админ-версию
+  return getProductByIdentifier(productId, true); // Возвращаем админ-версию (изменили на Identifier)
 };
 
 const updateProduct = async (id, data) => {
@@ -218,7 +234,6 @@ const updateProduct = async (id, data) => {
     }
     delete data.stockQuantity; // Удаляем, чтобы не обновлять в product_products
   }
-
   // НОВОЕ: Partial update для attributes — мержим с текущими из БД, без defaults
   if (data.attributes) {
     // Получаем текущие attributes из БД
@@ -235,7 +250,6 @@ const updateProduct = async (id, data) => {
     const updatedAttrs = { ...currentAttrs, ...data.attributes };
     data.attributes = JSON.stringify(updatedAttrs);
   }
-
   if (!data.main_image_url) {
     data.main_image_url = `/uploads/products/${id}/main.jpg`;
   }
@@ -260,7 +274,7 @@ const updateProduct = async (id, data) => {
     `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
     [id, ...values]
   );
-  return getProductById(id, true); // Возвращаем админ-версию
+  return getProductByIdentifier(id, true); // Изменили на Identifier
 };
 
 const deleteProduct = async (id) => {
@@ -287,7 +301,7 @@ const getProductsByBrand = async (brandId) => {
 
 module.exports = {
   getAllProducts,
-  getProductById,
+  getProductByIdentifier, // Изменили имя с getProductById
   createProduct,
   updateProduct,
   deleteProduct,

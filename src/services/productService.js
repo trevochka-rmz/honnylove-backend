@@ -116,8 +116,8 @@ const getAllProducts = async (query, isAdmin = false) => {
   return productModel.getAllProducts({ ...value, isAdmin });
 };
 
-const getProductById = async (id, isAdmin = false) => {
-  const product = await productModel.getProductById(id, isAdmin);
+const getProductByIdentifier = async (identifier, isAdmin = false) => {
+  const product = await productModel.getProductByIdentifier(identifier, isAdmin);
   if (!product) throw new AppError('Product not found', 404);
   return product;
 };
@@ -131,13 +131,13 @@ const createProduct = async (data) => {
 const updateProduct = async (id, data) => {
   const { error } = updateSchema.validate(data, { allowUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
-  const product = await getProductById(id); // Проверка существования
+  const product = await getProductByIdentifier(id); // Проверка существования (используем Identifier, но id — число)
   if (!product) throw new AppError('Product not found', 404);
   return productModel.updateProduct(id, data);
 };
 
 const deleteProduct = async (id) => {
-  const product = await getProductById(id);
+  const product = await getProductByIdentifier(id);
   if (!product) throw new AppError('Product not found', 404);
   return productModel.deleteProduct(id);
 };
@@ -149,7 +149,7 @@ const searchProducts = async (query) => {
 
 module.exports = {
   getAllProducts,
-  getProductById,
+  getProductByIdentifier, // Изменили имя
   createProduct,
   updateProduct,
   deleteProduct,

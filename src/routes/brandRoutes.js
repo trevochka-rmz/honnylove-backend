@@ -6,26 +6,26 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 // Публичные маршруты
 router.get('/', brandController.getBrands);
 router.get('/brief', brandController.getBrandsBrief);
-router.get('/:id', brandController.getBrandById);
+router.get('/:identifier', brandController.getBrandByIdentifier); // Изменили на :identifier
 
 // Защищенные маршруты (только для админов)
 router.post(
-    '/',
-    authenticate,
-    requireRole(['admin']),
-    brandController.createBrand
+  '/',
+  authenticate,
+  requireRole(['admin']),
+  brandController.createBrand
 );
 router.put(
-    '/:id',
-    authenticate,
-    requireRole(['admin']),
-    brandController.updateBrand
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  brandController.updateBrand
 );
 router.delete(
-    '/:id',
-    authenticate,
-    requireRole(['admin']),
-    brandController.deleteBrand
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  brandController.deleteBrand
 );
 
 module.exports = router;

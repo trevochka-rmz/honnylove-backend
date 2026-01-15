@@ -6,29 +6,27 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 // Публичные роуты
 router.get('/all', categoryController.getAllCategoriesForFrontend);
-router.get('/:id', categoryController.getCategoryById);
+router.get('/:identifier', categoryController.getCategoryByIdentifier); // Изменили на :identifier
 router.get('/', categoryController.getCategories);
 
 // Защищенные роуты (админка)
 router.post(
-    '/',
-    authenticate,
-    requireRole(['admin']),
-    categoryController.createCategory
+  '/',
+  authenticate,
+  requireRole(['admin']),
+  categoryController.createCategory
 );
-
 router.put(
-    '/:id',
-    authenticate,
-    requireRole(['admin']),
-    categoryController.updateCategory
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  categoryController.updateCategory
 );
-
 router.delete(
-    '/:id',
-    authenticate,
-    requireRole(['admin']),
-    categoryController.deleteCategory
+  '/:id',
+  authenticate,
+  requireRole(['admin']),
+  categoryController.deleteCategory
 );
 
 module.exports = router;

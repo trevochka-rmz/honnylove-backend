@@ -1,4 +1,4 @@
-const productService = require('../services/productService'); // Путь к service, скорректируй если нужно
+const productService = require('../services/productService'); 
 
 const getProducts = async (req, res, next, isAdmin = false) => {
   try {
@@ -16,9 +16,9 @@ const getProducts = async (req, res, next, isAdmin = false) => {
   }
 };
 
-const getProductById = async (req, res, next, isAdmin = false) => {
+const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
   try {
-    let product = await productService.getProductById(req.params.id, isAdmin);
+    let product = await productService.getProductByIdentifier(req.params.identifier, isAdmin);
     if (isAdmin && req.user && req.user.role === 'manager') {
       // Фильтрация для manager
       const { purchasePrice, ...rest } = product;
@@ -68,7 +68,7 @@ const searchProducts = async (req, res, next) => {
 
 module.exports = {
   getProducts,
-  getProductById,
+  getProductByIdentifier, // Изменили имя
   createProduct,
   updateProduct,
   deleteProduct,
