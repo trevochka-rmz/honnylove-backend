@@ -7,7 +7,7 @@ const blogSchema = Joi.object({
   title: Joi.string().required().messages({ 'any.required': 'Поле "title" обязательно' }),
   excerpt: Joi.string().required().messages({ 'any.required': 'Поле "excerpt" обязательно' }),
   content: Joi.string().required().messages({ 'any.required': 'Поле "content" обязательно' }),
-  image: Joi.string().uri().required().messages({ 'any.required': 'Поле "image" обязательно' }),
+  image: Joi.string().uri().optional(),
   category: Joi.string().required().messages({ 'any.required': 'Поле "category" обязательно' }),
   author: Joi.string().required().messages({ 'any.required': 'Поле "author" обязательно' }),
   date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -53,22 +53,24 @@ const getBlogPostByIdentifier = async (identifier) => {
 };
 
 // Создание поста
-const createBlogPost = async (data) => {
+const createBlogPost = async (data, imageFile) => {
   const { error, value } = blogSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  const existing = await blogModel.getBlogPostByIdentifier(value.id);
-  if (existing) throw new AppError('Пост с таким ID уже существует', 409);
-  return blogModel.createBlogPost(value);
+  
+  return blogModel.createBlogPost(value, imageFile);
 };
 
 // Обновление поста
-const updateBlogPost = async (id, data) => {
+const updateBlogPost = async (id, data, imageFile) => {
   const { error, value } = updateSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
+  
   const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
-  return blogModel.updateBlogPost(id, value);
+  
+  return blogModel.updateBlogPost(id, value, imageFile);
 };
+
 
 // Удаление поста
 const deleteBlogPost = async (id) => {

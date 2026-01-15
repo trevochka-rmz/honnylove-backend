@@ -1,6 +1,6 @@
 {
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.968.0",
+        "@aws-sdk/client-s3": "^3.969.0",
         "axios": "^1.13.2",
         "bcryptjs": "^3.0.3",
         "cheerio": "^1.1.2",
@@ -10,6 +10,7 @@
         "image-downloader": "^4.3.0",
         "joi": "^17.11.0",
         "jsonwebtoken": "^9.0.2",
+        "multer": "^2.0.2",
         "pg": "^8.11.3",
         "puppeteer": "^24.34.0",
         "puppeteer-extra": "^3.3.6",

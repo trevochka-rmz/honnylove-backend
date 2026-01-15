@@ -1,6 +1,8 @@
 // controllers/blogController.js
 const blogService = require('../services/blogService');
 const { addFullImageUrls } = require('../utils/imageUtils');
+const upload = require('../middleware/uploadMiddleware');
+
 
 // Получение всех постов
 const getBlogPosts = async (req, res, next) => {
@@ -25,26 +27,40 @@ const getBlogPostByIdentifier = async (req, res, next) => {
 };
 
 // Создание поста
-const createBlogPost = async (req, res, next) => {
-  try {
-    const post = await blogService.createBlogPost(req.body);
-    const processed = addFullImageUrls(post, req);
-    res.status(201).json(processed);
-  } catch (err) {
-    next(err);
+const createBlogPost = [
+  upload.single('image'),
+  async (req, res, next) => {
+      try {
+          const postData = req.body;
+          if (postData.tags && typeof postData.tags === 'string') {
+              postData.tags = JSON.parse(postData.tags);
+          }
+          const newPost = await blogService.createBlogPost(postData, req.file);
+          const processedPost = addFullImageUrls(newPost, req);
+          res.status(201).json(processedPost);
+      } catch (error) {
+          next(error);
+      }
   }
-};
+];
 
 // Обновление поста
-const updateBlogPost = async (req, res, next) => {
-  try {
-    const post = await blogService.updateBlogPost(req.params.id, req.body);
-    const processed = addFullImageUrls(post, req);
-    res.json(processed);
-  } catch (err) {
-    next(err);
+const updateBlogPost = [
+  upload.single('image'),
+  async (req, res, next) => {
+      try {
+          const { id } = req.params;
+          const updateData = req.body;
+          const updatedPost = await blogService.updateBlogPost(id, updateData, req.file);
+          if (!updatedPost) return res.status(404).json({ error: 'Пост не найден' });
+          const processedPost = addFullImageUrls(updatedPost, req);
+          res.json(processedPost);
+      } catch (error) {
+          next(error);
+      }
   }
-};
+];
+
 
 // Удаление поста
 const deleteBlogPost = async (req, res, next) => {
@@ -59,7 +75,7 @@ const deleteBlogPost = async (req, res, next) => {
 module.exports = {
   getBlogPosts,
   getBlogPostByIdentifier,
-  createBlogPost,
-  updateBlogPost,
   deleteBlogPost,
+  updateBlogPost,
+  createBlogPost
 };

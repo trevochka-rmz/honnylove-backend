@@ -1,5 +1,6 @@
 // models/blogModel.js
 const db = require('../config/db');
+const { uploadBlogImage, deleteOldBlogImage } = require('../utils/s3Uploader');
 
 // Получение всех постов с пагинацией и фильтрами
 const getAllBlogPosts = async ({
@@ -86,43 +87,66 @@ const getBlogPostByIdentifier = async (identifier) => {
 };
 
 // Создание поста
-const createBlogPost = async (data) => {
-  if (!data.date) data.date = new Date().toISOString().split('T')[0];
-  
-  const query = `
-    INSERT INTO blog_posts
-      (title, excerpt, content, image, category, author, date, read_time, tags)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    RETURNING *
-  `;
-  
-  const params = [
-    data.title, data.excerpt, data.content, data.image, 
-    data.category, data.author, data.date, data.read_time, data.tags || []
-  ];
-  
-  const { rows } = await db.query(query, params);
-  return getBlogPostByIdentifier(rows[0].id);
+const createBlogPost = async (postData, imageFile) => {
+  const { title, excerpt, content, category, author, read_time, tags = [] } = postData;
+  const date = postData.date || new Date().toISOString().split('T')[0];
+
+  const { rows } = await db.query(
+      `INSERT INTO blog_posts (title, excerpt, content, category, author, date, read_time, tags, image)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+       RETURNING id`,
+      [title, excerpt, content, category, author, date, read_time, tags]
+  );
+
+  const blogId = rows[0].id;
+  let finalImageUrl = null;
+
+  if (imageFile) {
+      finalImageUrl = await uploadBlogImage(imageFile.buffer, imageFile.originalname, blogId);
+      await db.query(`UPDATE blog_posts SET image = $1 WHERE id = $2`, [finalImageUrl, blogId]);
+  }
+
+  return getBlogPostByIdentifier(blogId);
 };
 
 // Обновление поста
-const updateBlogPost = async (id, data) => {
-  const fields = Object.keys(data)
-    .map((key, idx) => {
-      if (key === 'date') return `${key} = $${idx + 2}::DATE`;
-      return `${key} = $${idx + 2}`;
-    })
-    .join(', ');
-  const values = Object.values(data);
-  if (fields.length === 0) return getBlogPostByIdentifier(id);
-  const { rows } = await db.query(
-    `UPDATE blog_posts
-     SET ${fields}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1 RETURNING *`,
-    [id, ...values]
-  );
+const updateBlogPost = async (id, updateData, newImageFile) => {
+  const oldPost = await getBlogPostByIdentifier(id);
+  if (!oldPost) return null;
+
+  const fields = [];
+  const values = [];
+  let paramIndex = 1;
+
+  Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+          fields.push(`${key} = $${paramIndex}`);
+          values.push(updateData[key]);
+          paramIndex++;
+      }
+  });
+
+  let finalImageUrl = oldPost.image;
+
+  if (newImageFile) {
+      if (oldPost.image && oldPost.image !== 'pending') {
+          await deleteOldBlogImage(oldPost.image);
+      }
+      finalImageUrl = await uploadBlogImage(newImageFile.buffer, newImageFile.originalname, id);
+      fields.push(`image = $${paramIndex}`);
+      values.push(finalImageUrl);
+      paramIndex++;
+  }
+
+  if (fields.length > 0) {
+      fields.push(`updated_at = CURRENT_TIMESTAMP`);
+      const query = `UPDATE blog_posts SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+      await db.query(query, [...values, id]);
+  }
+
   return getBlogPostByIdentifier(id);
 };
+
 
 // Удаление поста
 const deleteBlogPost = async (id) => {
