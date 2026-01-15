@@ -1,5 +1,6 @@
 {
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.968.0",
         "axios": "^1.13.2",
         "bcryptjs": "^3.0.3",
         "cheerio": "^1.1.2",
@@ -19,6 +20,7 @@
         "nodemon": "^3.0.1"
     },
     "scripts": {
-  "start": "nodemon src/app.js",  
-  "start:prod": "node src/app.js" }
+        "start": "nodemon src/app.js",
+        "start:prod": "node src/app.js"
+    }
 }

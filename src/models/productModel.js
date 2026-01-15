@@ -143,7 +143,7 @@ const createProduct = async (data) => {
   if (data.image_urls) {
     data.image_urls = JSON.stringify(data.image_urls);
   }
-  // НОВОЕ: Если discount_price === 0, устанавливаем в null (сброс скидки)
+  // Если discount_price === 0, устанавливаем в null (сброс скидки)
   if (data.discount_price === 0) {
     data.discount_price = null;
   }
@@ -179,7 +179,7 @@ const createProduct = async (data) => {
       [productId, ...updateValues]
     );
   }
-  // НОВОЕ: Если stockQuantity передано, обновляем inventory (триггер уже создал запись с 0)
+  // Если stockQuantity передано, обновляем inventory (триггер уже создал запись с 0)
   if (data.stockQuantity !== undefined) {
     const quantity = parseInt(data.stockQuantity, 10);
     if (isNaN(quantity) || quantity < 0) {
@@ -218,14 +218,24 @@ const updateProduct = async (id, data) => {
     }
     delete data.stockQuantity; // Удаляем, чтобы не обновлять в product_products
   }
+
+  // НОВОЕ: Partial update для attributes — мержим с текущими из БД, без defaults
   if (data.attributes) {
-    const defaultAttributes = {
-      usage: 'Скоро будет',
-      variants: [{ name: 'Объём', value: '50мл' }],
-      ingredients: 'Скоро будет',
-    };
-    data.attributes = { ...defaultAttributes, ...data.attributes };
+    // Получаем текущие attributes из БД
+    const { rows: currentRows } = await db.query(
+      'SELECT attributes FROM product_products WHERE id = $1',
+      [id]
+    );
+    if (currentRows.length === 0) {
+      throw new Error('Product not found');
+    }
+    // ИЗМЕНЕНО: Нет JSON.parse — pg уже возвращает object (parsed jsonb)
+    let currentAttrs = currentRows[0].attributes || {}; // Если null, пустой объект
+    // Мержим с новыми атрибутами (обновляем только указанные ключи)
+    const updatedAttrs = { ...currentAttrs, ...data.attributes };
+    data.attributes = JSON.stringify(updatedAttrs);
   }
+
   if (!data.main_image_url) {
     data.main_image_url = `/uploads/products/${id}/main.jpg`;
   }
@@ -235,12 +245,9 @@ const updateProduct = async (id, data) => {
       `/uploads/products/${id}/gallery/2.jpg`,
     ];
   }
-  // НОВОЕ: Если discount_price === 0, устанавливаем в null (сброс скидки)
+  // Если discount_price === 0, устанавливаем в null (сброс скидки)
   if (data.discount_price === 0) {
     data.discount_price = null;
-  }
-  if (data.attributes) {
-    data.attributes = JSON.stringify(data.attributes);
   }
   if (data.image_urls) {
     data.image_urls = JSON.stringify(data.image_urls);
