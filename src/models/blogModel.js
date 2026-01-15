@@ -1,18 +1,18 @@
 // models/blogModel.js
 const db = require('../config/db');
 
+// Получение всех постов с пагинацией и фильтрами
 const getAllBlogPosts = async ({
   page = 1,
   limit = 10,
   search,
   category,
   tags,
-  sort = 'latest', // 'latest' | 'oldest' | 'readTime'
+  sort = 'latest',
 }) => {
   let baseQuery = 'FROM blog_posts';
   const params = [];
   let where = '';
-  // Поиск
   if (search) {
     where += (where ? ' AND' : '') + ` (
       title ILIKE $${params.length + 1} OR
@@ -21,41 +21,29 @@ const getAllBlogPosts = async ({
     )`;
     params.push(`%${search}%`);
   }
-  // Фильтр по категории
   if (category) {
     where += (where ? ' AND' : '') + ` category = $${params.length + 1}`;
     params.push(category);
   }
-  // Фильтр по тегам
   if (tags) {
     let tagsArray;
-    // Проверяем разные форматы приходящего параметра
     if (Array.isArray(tags)) {
       tagsArray = tags;
     } else if (typeof tags === 'string') {
-      // Если строка, может быть "путешествия" или "путешествия,отдых"
-      if (tags.includes(',')) {
-        tagsArray = tags.split(',').map(tag => tag.trim());
-      } else {
-        tagsArray = [tags];
-      }
+      tagsArray = tags.split(',').map(tag => tag.trim());
     }
-    // Применяем фильтр только если есть теги
     if (tagsArray && tagsArray.length > 0) {
-      // Используем оператор && для поиска хотя бы одного совпадения
       where += (where ? ' AND' : '') + ` tags && $${params.length + 1}`;
       params.push(tagsArray);
     }
   }
   if (where) baseQuery += ' WHERE' + where;
-  // Сортировка
   let orderBy = ' ORDER BY date DESC';
   if (sort === 'oldest') {
     orderBy = ' ORDER BY date ASC';
   } else if (sort === 'readTime') {
     orderBy = ' ORDER BY read_time DESC';
   }
-  // Основной запрос с пагинацией
   const dataQuery = `
     SELECT
       id, title, excerpt, content, image, category, author,
@@ -67,7 +55,6 @@ const getAllBlogPosts = async ({
   `;
   const dataParams = [...params, limit, (page - 1) * limit];
   const { rows: posts } = await db.query(dataQuery, dataParams);
-  // Подсчёт общего количества
   const countQuery = `SELECT COUNT(*) ${baseQuery}`;
   const { rows: countRows } = await db.query(countQuery, params);
   const total = parseInt(countRows[0].count, 10);
@@ -76,64 +63,57 @@ const getAllBlogPosts = async ({
   return { posts, total, page, pages, limit, hasMore };
 };
 
-// Универсальная функция для поиска по identifier (id или slug)
+// Получение поста по id или slug
 const getBlogPostByIdentifier = async (identifier) => {
-  let query = `
+  // Сначала по slug
+  let { rows } = await db.query(`
     SELECT
       id, title, excerpt, content, image, category, author,
       TO_CHAR(date, 'YYYY-MM-DD') AS date,
       read_time, tags, created_at, updated_at, slug
-    FROM blog_posts WHERE `;
-  let param = identifier;
-
-  // ИСПРАВЛЕНИЕ: Проверяем, состоит ли ВСЯ строка только из цифр
-  if (/^\d+$/.test(identifier)) {
-    query += 'id = $1';
-    param = identifier; // Оставляем как строку, т.к. id varchar
-  } else {
-    query += 'slug = $1';
-  }
-
-  const { rows } = await db.query(query, [param]);
+    FROM blog_posts WHERE slug = $1
+  `, [identifier]);
+  if (rows[0]) return rows[0];
+  // Если не найдено — по id
+  ({ rows } = await db.query(`
+    SELECT
+      id, title, excerpt, content, image, category, author,
+      TO_CHAR(date, 'YYYY-MM-DD') AS date,
+      read_time, tags, created_at, updated_at, slug
+    FROM blog_posts WHERE id = $1
+  `, [identifier]));
   return rows[0] || null;
 };
 
+// Создание поста
 const createBlogPost = async (data) => {
-  const {
-    id,
-    title,
-    excerpt,
-    content,
-    image,
-    category,
-    author,
-    date,
-    read_time,
-    tags = [],
-  } = data;
-  const { rows } = await db.query(
-    `INSERT INTO blog_posts
-      (id, title, excerpt, content, image, category, author, date, read_time, tags)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::DATE, $9, $10)
-    RETURNING *`,
-    [id, title, excerpt, content, image, category, author, date, read_time, tags]
-  );
-  const created = rows[0];
-  return getBlogPostByIdentifier(created.id); // Возвращаем полный объект
+  if (!data.date) data.date = new Date().toISOString().split('T')[0];
+  
+  const query = `
+    INSERT INTO blog_posts
+      (title, excerpt, content, image, category, author, date, read_time, tags)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING *
+  `;
+  
+  const params = [
+    data.title, data.excerpt, data.content, data.image, 
+    data.category, data.author, data.date, data.read_time, data.tags || []
+  ];
+  
+  const { rows } = await db.query(query, params);
+  return getBlogPostByIdentifier(rows[0].id);
 };
 
+// Обновление поста
 const updateBlogPost = async (id, data) => {
   const fields = Object.keys(data)
-    .filter(key => key !== 'id') // id не обновляем
     .map((key, idx) => {
       if (key === 'date') return `${key} = $${idx + 2}::DATE`;
-      if (key === 'tags') return `${key} = $${idx + 2}`;
       return `${key} = $${idx + 2}`;
     })
     .join(', ');
-  const values = Object.keys(data)
-    .filter(key => key !== 'id')
-    .map(key => data[key]);
+  const values = Object.values(data);
   if (fields.length === 0) return getBlogPostByIdentifier(id);
   const { rows } = await db.query(
     `UPDATE blog_posts
@@ -144,10 +124,12 @@ const updateBlogPost = async (id, data) => {
   return getBlogPostByIdentifier(id);
 };
 
+// Удаление поста
 const deleteBlogPost = async (id) => {
   await db.query('DELETE FROM blog_posts WHERE id = $1', [id]);
 };
 
+// Получение кратких постов
 const getAllBlogPostsBrief = async () => {
   const { rows } = await db.query(
     `SELECT id, title, excerpt, image, category,
