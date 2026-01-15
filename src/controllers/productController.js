@@ -1,8 +1,15 @@
-const productService = require('../services/productService'); 
+// controllers/productController.js
+const productService = require('../services/productService');
+const { addFullImageUrls } = require('../utils/imageUtils'); // НОВОЕ: Импорт утилиты для добавления полных URL к изображениям
 
 const getProducts = async (req, res, next, isAdmin = false) => {
   try {
     let data = await productService.getAllProducts(req.query, isAdmin);
+    
+    // НОВОЕ: Добавляем полные URL к изображениям (image, images) во всех продуктах
+    // Это обработает структуру { products: [...], total, page, ... }
+    data = addFullImageUrls(data, req);
+    
     if (isAdmin && req.user && req.user.role === 'manager') {
       // Фильтрация purchasePrice для manager в админ-роутах
       data.products = data.products.map(product => {
@@ -19,6 +26,10 @@ const getProducts = async (req, res, next, isAdmin = false) => {
 const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
   try {
     let product = await productService.getProductByIdentifier(req.params.identifier, isAdmin);
+    
+    // НОВОЕ: Добавляем полные URL к изображениям (image, images) для одиночного продукта
+    product = addFullImageUrls(product, req);
+    
     if (isAdmin && req.user && req.user.role === 'manager') {
       // Фильтрация для manager
       const { purchasePrice, ...rest } = product;
@@ -32,7 +43,11 @@ const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
 
 const createProduct = async (req, res, next) => {
   try {
-    const product = await productService.createProduct(req.body);
+    let product = await productService.createProduct(req.body);
+    
+    // НОВОЕ: Добавляем полные URL к изображениям после создания
+    product = addFullImageUrls(product, req);
+    
     res.status(201).json(product);
   } catch (err) {
     next(err);
@@ -41,7 +56,11 @@ const createProduct = async (req, res, next) => {
 
 const updateProduct = async (req, res, next) => {
   try {
-    const product = await productService.updateProduct(req.params.id, req.body);
+    let product = await productService.updateProduct(req.params.id, req.body);
+    
+    // НОВОЕ: Добавляем полные URL к изображениям после обновления
+    product = addFullImageUrls(product, req);
+    
     res.json(product);
   } catch (err) {
     next(err);
@@ -59,7 +78,12 @@ const deleteProduct = async (req, res, next) => {
 
 const searchProducts = async (req, res, next) => {
   try {
-    const products = await productService.searchProducts(req.query.query);
+    let products = await productService.searchProducts(req.query.query);
+    
+    // НОВОЕ: Добавляем полные URL к изображениям в массиве продуктов
+    // imageUtils обработает простой массив [...]
+    products = addFullImageUrls(products, req);
+    
     res.json(products);
   } catch (err) {
     next(err);

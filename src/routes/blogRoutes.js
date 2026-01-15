@@ -5,8 +5,7 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 // Публичные маршруты (для всех пользователей)
 router.get('/', blogController.getBlogPosts);
-// Можно добавить /brief если нужно короткий список
-router.get('/:id', blogController.getBlogPostById);
+router.get('/:identifier', blogController.getBlogPostByIdentifier); 
 
 // Защищённые маршруты (только админы)
 router.post(
@@ -15,14 +14,12 @@ router.post(
   requireRole(['admin']),
   blogController.createBlogPost
 );
-
 router.put(
   '/:id',
   authenticate,
   requireRole(['admin']),
   blogController.updateBlogPost
 );
-
 router.delete(
   '/:id',
   authenticate,

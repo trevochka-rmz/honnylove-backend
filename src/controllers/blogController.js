@@ -12,9 +12,9 @@ const getBlogPosts = async (req, res, next) => {
   }
 };
 
-const getBlogPostById = async (req, res, next) => {
+const getBlogPostByIdentifier = async (req, res, next) => {
   try {
-    const post = await blogService.getBlogPostById(req.params.id);
+    const post = await blogService.getBlogPostByIdentifier(req.params.identifier);
     const processed = addFullImageUrls ? addFullImageUrls(post, req) : post;
     res.json(processed);
   } catch (err) {
@@ -53,7 +53,7 @@ const deleteBlogPost = async (req, res, next) => {
 
 module.exports = {
   getBlogPosts,
-  getBlogPostById,
+  getBlogPostByIdentifier, // Изменили имя
   createBlogPost,
   updateBlogPost,
   deleteBlogPost,

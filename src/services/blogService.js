@@ -34,8 +34,8 @@ const querySchema = Joi.object({
   search: Joi.string().optional(),
   filter: Joi.string().valid('popular', 'new').optional(),
   tags: Joi.alternatives().try(
-    Joi.string(), 
-    Joi.array().items(Joi.string()) 
+    Joi.string(),
+    Joi.array().items(Joi.string())
   ).optional(),
 });
 
@@ -45,8 +45,8 @@ const getAllBlogPosts = async (query) => {
   return blogModel.getAllBlogPosts(value);
 };
 
-const getBlogPostById = async (id) => {
-  const post = await blogModel.getBlogPostById(id);
+const getBlogPostByIdentifier = async (identifier) => {
+  const post = await blogModel.getBlogPostByIdentifier(identifier);
   if (!post) throw new AppError('Пост не найден', 404);
   return post;
 };
@@ -54,26 +54,22 @@ const getBlogPostById = async (id) => {
 const createBlogPost = async (data) => {
   const { error, value } = blogSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-
   // Проверка на уникальность id
-  const existing = await blogModel.getBlogPostById(value.id);
+  const existing = await blogModel.getBlogPostByIdentifier(value.id);
   if (existing) throw new AppError('Пост с таким ID уже существует', 409);
-
   return blogModel.createBlogPost(value);
 };
 
 const updateBlogPost = async (id, data) => {
   const { error, value } = updateSchema.validate(data, { stripUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
-
-  const post = await blogModel.getBlogPostById(id);
+  const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
-
   return blogModel.updateBlogPost(id, value);
 };
 
 const deleteBlogPost = async (id) => {
-  const post = await blogModel.getBlogPostById(id);
+  const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
   // Можно добавить проверку на связанные комментарии/лайки, если будут
   await blogModel.deleteBlogPost(id);
@@ -81,7 +77,7 @@ const deleteBlogPost = async (id) => {
 
 module.exports = {
   getAllBlogPosts,
-  getBlogPostById,
+  getBlogPostByIdentifier, // Изменили имя
   createBlogPost,
   updateBlogPost,
   deleteBlogPost,
