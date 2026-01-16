@@ -149,7 +149,7 @@ const searchProducts = async (query) => {
 
 module.exports = {
   getAllProducts,
-  getProductByIdentifier, // Изменили имя
+  getProductByIdentifier, 
   createProduct,
   updateProduct,
   deleteProduct,

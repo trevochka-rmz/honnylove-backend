@@ -1,6 +1,7 @@
-// src/controllers/userController.js
+// controllers/userController.js
 const userService = require('../services/userService');
 
+// Получение всех пользователей
 const getAllUsers = async (req, res, next) => {
     try {
         const users = await userService.getAllUsers(req.query);
@@ -10,6 +11,17 @@ const getAllUsers = async (req, res, next) => {
     }
 };
 
+// Получение пользователя по id для админа
+const getUserByIdAdmin = async (req, res, next) => {
+    try {
+        const user = await userService.getUserByIdAdmin(req.params.id);
+        res.json(user);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Создание админа
 const createAdmin = async (req, res, next) => {
     try {
         const admin = await userService.createAdmin(req.body);
@@ -19,6 +31,7 @@ const createAdmin = async (req, res, next) => {
     }
 };
 
+// Создание менеджера
 const createManager = async (req, res, next) => {
     try {
         const manager = await userService.createManager(req.body);
@@ -28,6 +41,7 @@ const createManager = async (req, res, next) => {
     }
 };
 
+// Обновление роли пользователя
 const updateUserRole = async (req, res, next) => {
     try {
         const user = await userService.updateUserRole(
@@ -40,6 +54,7 @@ const updateUserRole = async (req, res, next) => {
     }
 };
 
+// Деактивация пользователя
 const deactivateUser = async (req, res, next) => {
     try {
         const user = await userService.deactivateUser(req.params.id);
@@ -49,31 +64,33 @@ const deactivateUser = async (req, res, next) => {
     }
 };
 
+// Получение профиля
 const getProfile = async (req, res, next) => {
     try {
-        // req.user.id из auth middleware (verifyToken)
-        const profile = await userService.getProfile(req.user.id); // ← ВЫЗОВ СЕРВИСА
+        const profile = await userService.getProfile(req.user.id);
         res.json(profile);
     } catch (err) {
-        next(err); // ← передаем в error handler
+        next(err);
     }
 };
 
+// Обновление профиля
 const updateProfile = async (req, res, next) => {
     try {
         const updated = await userService.updateProfile(req.user.id, req.body);
         res.json(updated);
     } catch (err) {
-        next(err); // ← передаем в error handler
+        next(err);
     }
 };
 
 module.exports = {
     getAllUsers,
+    getUserByIdAdmin,
     createAdmin,
     createManager,
     updateUserRole,
     deactivateUser,
     getProfile,
-    updateProfile, // Новый экспорт
+    updateProfile,
 };

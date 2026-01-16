@@ -9,7 +9,7 @@ const addToWishlist = async (req, res, next) => {
 
         // Получаем полные данные продукта для ответа
         const productService = require('../services/productService');
-        const product = await productService.getProductById(item.product_id);
+        const product = await productService.getProductByIdentifier(item.product_id);
         const processedProduct = addFullImageUrls(product, req);
 
         res.status(201).json({

@@ -1,4 +1,4 @@
-// src/services/userService.js
+// services/userService.js
 const bcrypt = require('bcryptjs');
 const Joi = require('joi');
 const userModel = require('../models/userModel');
@@ -8,7 +8,7 @@ const {
     generateRefreshToken,
 } = require('../utils/jwtUtils');
 
-// Схема для создания admin/manager (добавлено discount_percentage optional)
+// Схема для создания admin/manager
 const adminManagerSchema = Joi.object({
     username: Joi.string().min(3).max(255).required(),
     email: Joi.string().email().required(),
@@ -25,21 +25,28 @@ const adminManagerSchema = Joi.object({
         .default(0.0),
 });
 
-// Схема для обновления профиля (добавлено discount_percentage optional, но лучше админам менять отдельно)
+// Схема для обновления профиля
 const updateProfileSchema = Joi.object({
     first_name: Joi.string().optional(),
     last_name: Joi.string().optional(),
     phone: Joi.string().optional(),
     address: Joi.string().optional(),
-    // discount_percentage: Joi.number().precision(2).min(0).max(100).optional(), // Optional, но можно ограничить для self-update
-    // Не добавляем sensitive поля
 });
 
+// Получение всех пользователей
 const getAllUsers = async (query) => {
     const { page = 1, limit = 10, role } = query;
     return userModel.getAllUsers({ page, limit, role });
 };
 
+// Получение пользователя по id для админа
+const getUserByIdAdmin = async (id) => {
+    const user = await userModel.getUserByIdSafe(id);
+    if (!user) throw new AppError('User not found', 404);
+    return user;
+};
+
+// Обновление роли пользователя
 const updateUserRole = async (id, role) => {
     const validRoles = ['customer', 'manager', 'admin'];
     if (!validRoles.includes(role)) throw new AppError('Invalid role', 400);
@@ -48,12 +55,14 @@ const updateUserRole = async (id, role) => {
     return userModel.updateUser(id, { role });
 };
 
+// Деактивация пользователя
 const deactivateUser = async (id) => {
     const user = await userModel.getUserById(id);
     if (!user) throw new AppError('User not found', 404);
     return userModel.updateUser(id, { is_active: false });
 };
 
+// Создание админа
 const createAdmin = async (data) => {
     const { error, value } = adminManagerSchema.validate(data);
     if (error) throw new AppError(error.details[0].message, 400);
@@ -75,6 +84,7 @@ const createAdmin = async (data) => {
     };
 };
 
+// Создание менеджера
 const createManager = async (data) => {
     const { error, value } = adminManagerSchema.validate(data);
     if (error) throw new AppError(error.details[0].message, 400);
@@ -87,6 +97,8 @@ const createManager = async (data) => {
         role: 'manager',
     });
 };
+
+// Получение профиля
 const getProfile = async (userId) => {
   const profile = await userModel.getUserProfile(userId);
   if (!profile) {
@@ -95,6 +107,7 @@ const getProfile = async (userId) => {
   return profile;
 };
 
+// Обновление профиля
 const updateProfile = async (userId, data) => {
   const { error, value } = updateProfileSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
@@ -104,6 +117,7 @@ const updateProfile = async (userId, data) => {
 
 module.exports = {
     getAllUsers,
+    getUserByIdAdmin,
     updateUserRole,
     deactivateUser,
     createAdmin,

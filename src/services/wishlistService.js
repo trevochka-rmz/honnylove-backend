@@ -13,7 +13,7 @@ const addToWishlist = async (userId, data) => {
     }
 
     // Проверяем существование товара
-    const product = await productService.getProductById(productId);
+    const product = await productService.getProductByIdentifier(productId);
     if (!product) {
         throw new AppError('Товар не найден', 404);
     }
@@ -34,7 +34,7 @@ const getWishlist = async (userId) => {
     const items = await wishlistModel.getWishlistByUser(userId);
 
     for (const item of items) {
-        const product = await productService.getProductById(item.product_id);
+        const product = await productService.getProductByIdentifier(item.product_id);
         if (product) {
             item.product = product;
         }

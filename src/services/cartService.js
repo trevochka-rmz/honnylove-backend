@@ -20,7 +20,7 @@ const addToCart = async (userId, data) => {
     const { product_id, quantity } = data;
 
     // Проверяем существование товара
-    const product = await productService.getProductById(product_id);
+    const product = await productService.getProductByIdentifier(product_id);
     if (!product) {
         throw new AppError('Товар не найден', 404);
     }
@@ -61,7 +61,7 @@ const getCart = async (userId) => {
 
     for (const item of items) {
         // Получаем информацию о продукте
-        const product = await productService.getProductById(item.product_id);
+        const product = await productService.getProductByIdentifier(item.product_id);
 
         if (product) {
             item.product = product;
