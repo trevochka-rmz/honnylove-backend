@@ -1,6 +1,7 @@
-// src/controllers/orderController.js
+// src/controllers/orderController.js 
 const orderService = require('../services/orderService');
-const { processOrderImages, processOrdersImages } = require('../utils/orderImageUtils');
+
+// КЛИЕНТСКИЕ ЭНДПОИНТЫ
 
 /**
  * @desc    Оформить заказ из корзины
@@ -11,16 +12,7 @@ const checkout = async (req, res, next) => {
   try {
     const result = await orderService.createOrder(req.user.id, req.body);
     
-    // Обрабатываем изображения в заказе
-    if (result.data && result.data.order) {
-      result.data.order = processOrderImages(result.data.order, req);
-    }
-    
-    res.status(201).json({
-      success: true,
-      message: result.message,
-      data: result.data
-    });
+    res.status(201).json(result);
   } catch (err) {
     next(err);
   }
@@ -28,23 +20,20 @@ const checkout = async (req, res, next) => {
 
 /**
  * @desc    Получить заказы текущего пользователя
- * @route   GET /api/orders/my-orders
+ * @route   GET /api/orders
  * @access  Private (Customer)
  */
 const getMyOrders = async (req, res, next) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     
-    const result = await orderService.getUserOrders(req.user.id, page, limit);
+    const result = await orderService.getUserOrders(
+      req.user.id,
+      parseInt(page, 10),
+      parseInt(limit, 10)
+    );
     
-    // Обрабатываем изображения в заказах
-    const processedOrders = processOrdersImages(result.orders, req);
-    
-    res.json({
-      success: true,
-      data: processedOrders,
-      pagination: result.pagination
-    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -52,25 +41,18 @@ const getMyOrders = async (req, res, next) => {
 
 /**
  * @desc    Получить детали конкретного заказа
- * @route   GET /api/orders/:orderId
+ * @route   GET /api/orders/:id
  * @access  Private (Owner or Admin)
  */
 const getOrder = async (req, res, next) => {
   try {
     const result = await orderService.getOrderDetails(
-      req.params.orderId,
+      req.params.id,
       req.user.id,
       req.user.role
     );
     
-    // Обрабатываем изображения в заказе
-    const processedOrder = processOrderImages(result.order, req);
-    
-    res.json({
-      success: true,
-      data: processedOrder,
-      accessible: result.accessible
-    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -78,135 +60,20 @@ const getOrder = async (req, res, next) => {
 
 /**
  * @desc    Отменить заказ
- * @route   PUT /api/orders/:orderId/cancel
+ * @route   PUT /api/orders/:id/cancel
  * @access  Private (Owner)
  */
 const cancelOrder = async (req, res, next) => {
   try {
-    const { reason } = req.body;
+    const { reason = '' } = req.body;
     
     const result = await orderService.cancelOrder(
       req.user.id,
-      req.params.orderId,
-      reason || ''
+      req.params.id,
+      reason
     );
     
-    // Обрабатываем изображения в заказе
-    if (result.data && result.data.order) {
-      result.data.order = processOrderImages(result.data.order, req);
-    }
-    
-    res.json({
-      success: true,
-      message: result.message,
-      data: result.data
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * @desc    Получить все заказы (админ)
- * @route   GET /api/admin/orders
- * @access  Private (Admin/Manager)
- */
-const getAllOrders = async (req, res, next) => {
-  try {
-    const { status, page = 1, limit = 20 } = req.query;
-    
-    const result = await orderService.getAllOrders(status, page, limit);
-    
-    // Обрабатываем изображения в заказах
-    const processedOrders = processOrdersImages(result.orders, req);
-    
-    res.json({
-      success: true,
-      data: processedOrders,
-      pagination: result.pagination
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * @desc    Получить детали заказа (админ)
- * @route   GET /api/admin/orders/:orderId
- * @access  Private (Admin/Manager)
- */
-const getOrderDetails = async (req, res, next) => {
-  try {
-    const result = await orderService.getOrderDetails(
-      req.params.orderId,
-      null, // userId не нужен для админа
-      req.user.role
-    );
-    
-    // Обрабатываем изображения в заказе
-    const processedOrder = processOrderImages(result.order, req);
-    
-    res.json({
-      success: true,
-      data: processedOrder
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * @desc    Обновить статус заказа (админ)
- * @route   PUT /api/admin/orders/:orderId/status
- * @access  Private (Admin/Manager)
- */
-const updateOrderStatus = async (req, res, next) => {
-  try {
-    const { newStatus, notes } = req.body;
-    
-    if (!newStatus) {
-      return res.status(400).json({
-        success: false,
-        message: 'Укажите новый статус заказа'
-      });
-    }
-    
-    const result = await orderService.updateOrderStatus(
-      req.params.orderId,
-      newStatus,
-      req.user.id,
-      notes || ''
-    );
-    
-    // Обрабатываем изображения в заказе
-    if (result.data && result.data.order) {
-      result.data.order = processOrderImages(result.data.order, req);
-    }
-    
-    res.json({
-      success: true,
-      message: result.message,
-      data: result.data
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * @desc    Получить статистику заказов (админ)
- * @route   GET /api/admin/orders/stats
- * @access  Private (Admin/Manager)
- */
-const getOrderStats = async (req, res, next) => {
-  try {
-    const result = await orderService.getOrderStatistics();
-    
-    res.json({
-      success: true,
-      data: result.stats,
-      daily: result.daily_stats
-    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -221,16 +88,20 @@ const getOrderStatuses = async (req, res, next) => {
   try {
     res.json({
       success: true,
-      data: orderService.ORDER_STATUSES,
-      descriptions: {
-        pending: 'Ожидает обработки',
-        paid: 'Оплачен',
-        processing: 'В обработке',
-        shipped: 'Отправлен',
-        delivered: 'Доставлен',
-        cancelled: 'Отменен',
-        returned: 'Возвращен',
-        completed: 'Завершен'
+      data: {
+        statuses: orderService.ORDER_STATUSES,
+        descriptions: {
+          pending: 'Ожидает обработки',
+          paid: 'Оплачен',
+          processing: 'В обработке',
+          shipped: 'Отправлен',
+          delivered: 'Доставлен',
+          cancelled: 'Отменен',
+          returned: 'Возвращен',
+          completed: 'Завершен'
+        },
+        cancellable: orderService.CANCELLABLE_STATUSES,
+        deletable: orderService.DELETABLE_STATUSES
       }
     });
   } catch (err) {
@@ -238,14 +109,221 @@ const getOrderStatuses = async (req, res, next) => {
   }
 };
 
+// АДМИНСКИЕ ЭНДПОИНТЫ
+
+/**
+ * @desc    Получить все заказы с фильтрацией
+ * @route   GET /api/admin/orders
+ * @access  Private (Admin/Manager)
+ */
+const getAllOrders = async (req, res, next) => {
+  try {
+    const { 
+      status, 
+      user_id, 
+      date_from, 
+      date_to, 
+      search,
+      page = 1, 
+      limit = 20 
+    } = req.query;
+    
+    const filters = {
+      status,
+      user_id: user_id ? parseInt(user_id, 10) : undefined,
+      date_from,
+      date_to,
+      search
+    };
+    
+    // Удаляем undefined значения
+    Object.keys(filters).forEach(key => 
+      filters[key] === undefined && delete filters[key]
+    );
+    
+    const result = await orderService.getAllOrders(
+      filters,
+      parseInt(page, 10),
+      parseInt(limit, 10)
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc Создать новый заказ (админ)
+ * @route POST /api/admin/orders
+ * @access Private (Admin/Manager)
+ */
+const createAdminOrderController = async (req, res, next) => {
+  try {
+    const result = await orderService.createAdminOrder(req.user.id, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Получить детали заказа (админ)
+ * @route   GET /api/admin/orders/:id
+ * @access  Private (Admin/Manager)
+ */
+const getOrderDetailsAdmin = async (req, res, next) => {
+  try {
+    const result = await orderService.getOrderDetails(
+      req.params.id,
+      null,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Обновить статус заказа
+ * @route   PUT /api/admin/orders/:id/status
+ * @access  Private (Admin/Manager)
+ */
+const updateOrderStatus = async (req, res, next) => {
+  try {
+    const { newStatus, notes = '' } = req.body;
+    
+    if (!newStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Укажите новый статус заказа (поле newStatus)'
+      });
+    }
+    
+    const result = await orderService.updateOrderStatus(
+      req.params.id,
+      newStatus,
+      req.user.id,
+      notes
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Обновить данные заказа
+ * @route   PUT /api/admin/orders/:id
+ * @access  Private (Admin/Manager)
+ */
+const updateOrder = async (req, res, next) => {
+  try {
+    const result = await orderService.updateOrder(
+      req.params.id,
+      req.body,
+      req.user.id,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Удалить заказ
+ * @route   DELETE /api/admin/orders/:id
+ * @access  Private (Admin/Manager)
+ */
+const deleteOrder = async (req, res, next) => {
+  try {
+    const result = await orderService.deleteOrder(
+      req.params.id,
+      req.user.id,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Получить статистику заказов
+ * @route   GET /api/admin/orders/stats
+ * @access  Private (Admin/Manager)
+ */
+const getOrderStats = async (req, res, next) => {
+  try {
+    const result = await orderService.getOrderStatistics();
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Добавить товар в заказ
+ * @route   POST /api/admin/orders/:id/items
+ * @access  Private (Admin/Manager)
+ */
+const addItemToOrder = async (req, res, next) => {
+  try {
+    const result = await orderService.addItemToOrder(
+      req.params.id,
+      req.body,
+      req.user.id,
+      req.user.role
+    );
+    
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Удалить товар из заказа
+ * @route   DELETE /api/admin/orders/:id/items/:itemId
+ * @access  Private (Admin/Manager)
+ */
+const removeItemFromOrder = async (req, res, next) => {
+  try {
+    const result = await orderService.removeItemFromOrder(
+      req.params.id,
+      req.params.itemId,
+      req.user.id,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
+  // Клиентские
   checkout,
   getMyOrders,
   getOrder,
   cancelOrder,
+  getOrderStatuses,
+  
+  // Админские
   getAllOrders,
-  getOrderDetails,
+  getOrderDetailsAdmin,
   updateOrderStatus,
+  updateOrder,
+  deleteOrder,
   getOrderStats,
-  getOrderStatuses
+  addItemToOrder,
+  removeItemFromOrder
 };
