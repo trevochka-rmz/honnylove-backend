@@ -7,6 +7,12 @@ const getUserById = async (id) => {
   return rows[0];
 };
 
+// Получение пользователя по username
+const getUserByUsername = async (username) => {
+  const { rows } = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+  return rows[0];
+};
+
 // Получение пользователя по id без sensitive полей
 const getUserByIdSafe = async (id) => {
   const { rows } = await db.query(`
@@ -66,6 +72,16 @@ const updateUser = async (id, data) => {
     [id, ...values]
   );
   return rows[0];
+};
+
+// Удаление пользователя
+const deleteUser = async (id) => {
+  await db.query('DELETE FROM cart_items WHERE user_id = $1', [id]);
+  await db.query('DELETE FROM wishlist_items WHERE user_id = $1', [id]);
+  await db.query('DELETE FROM product_reviews WHERE user_id = $1', [id]);
+  await db.query('DELETE FROM orders WHERE user_id = $1', [id]);
+
+  await db.query('DELETE FROM users WHERE id = $1', [id]);
 };
 
 // Обновление refresh_token
@@ -147,8 +163,10 @@ module.exports = {
   getUserById,
   getUserByIdSafe,
   getUserByEmail,
+  getUserByUsername,
   createUser,
   updateUser,
+  deleteUser,
   updateRefreshToken,
   getAllUsers,
   getUserProfile,

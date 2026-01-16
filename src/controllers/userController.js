@@ -21,21 +21,31 @@ const getUserByIdAdmin = async (req, res, next) => {
     }
 };
 
-// Создание админа
-const createAdmin = async (req, res, next) => {
+// Обновление пользователя по id для админа
+const updateUserByIdAdmin = async (req, res, next) => {
     try {
-        const admin = await userService.createAdmin(req.body);
-        res.status(201).json(admin);
+        const updated = await userService.updateUserByIdAdmin(req.params.id, req.body);
+        res.json(updated);
     } catch (err) {
         next(err);
     }
 };
 
-// Создание менеджера
-const createManager = async (req, res, next) => {
+// Удаление пользователя по id
+const deleteUserById = async (req, res, next) => {
     try {
-        const manager = await userService.createManager(req.body);
-        res.status(201).json(manager);
+        await userService.deleteUser(req.params.id);
+        res.status(204).send();
+    } catch (err) {
+        next(err);
+    }
+};
+
+// Создание пользователя с указанной ролью
+const createUserWithRole = async (req, res, next) => {
+    try {
+        const result = await userService.createUserWithRole(req.body);
+        res.status(201).json(result);
     } catch (err) {
         next(err);
     }
@@ -87,8 +97,9 @@ const updateProfile = async (req, res, next) => {
 module.exports = {
     getAllUsers,
     getUserByIdAdmin,
-    createAdmin,
-    createManager,
+    updateUserByIdAdmin,
+    deleteUserById,
+    createUserWithRole,
     updateUserRole,
     deactivateUser,
     getProfile,

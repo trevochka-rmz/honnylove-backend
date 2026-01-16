@@ -4,6 +4,23 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
+
+// Получение профиля (аутентифицированные)
+router.get('/profile', authenticate, userController.getProfile);
+// Обновление профиля (аутентифицированные)
+router.put('/profile', authenticate, userController.updateProfile);
+
+
+// Админские маршруты
+// Создание пользователя с указанием роли (админ)
+router.post(
+    '/admin/create-user',
+    authenticate,
+    requireRole(['admin']),
+    userController.createUserWithRole // один маршрут вместо двух
+);
+
+
 // Получение всех пользователей (админ)
 router.get(
     '/',
@@ -20,26 +37,20 @@ router.get(
     userController.getUserByIdAdmin
 );
 
-// Получение профиля (аутентифицированные)
-router.get('/profile', authenticate, userController.getProfile);
-
-// Обновление профиля (аутентифицированные)
-router.put('/profile', authenticate, userController.updateProfile);
-
-// Создание админа (админ)
-router.post(
-    '/admin/create-admin',
+// Обновление пользователя по id (админ)
+router.put(
+    '/:id',
     authenticate,
     requireRole(['admin']),
-    userController.createAdmin
+    userController.updateUserByIdAdmin
 );
 
-// Создание менеджера (админ)
-router.post(
-    '/admin/create-manager',
+// Удаление пользователя по id (админ)
+router.delete(
+    '/:id',
     authenticate,
     requireRole(['admin']),
-    userController.createManager
+    userController.deleteUserById
 );
 
 // Обновление роли (админ)
