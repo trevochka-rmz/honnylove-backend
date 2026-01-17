@@ -1,8 +1,10 @@
+// src/services/brandService.js
 const Joi = require('joi');
 const brandModel = require('../models/brandModel');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
 
+// Схема валидации для создания бренда
 const brandSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().optional(),
@@ -16,7 +18,7 @@ const brandSchema = Joi.object({
   highlights: Joi.array().items(Joi.string()).default([]),
 });
 
-// НОВАЯ: Схема для update (partial, все optional)
+// Схема валидации для обновления бренда (все поля опциональные)
 const updateSchema = Joi.object({
   name: Joi.string().optional(),
   description: Joi.string().optional(),
@@ -30,49 +32,56 @@ const updateSchema = Joi.object({
   highlights: Joi.array().items(Joi.string()).optional(),
 });
 
+// Схема валидации для запросов списка брендов
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(8),
   isActive: Joi.boolean().optional(),
   search: Joi.string().optional(),
-  filter: Joi.string().valid('popular', 'new', 'recommended').optional(), // ← Добавили 'recommended'
+  filter: Joi.string().valid('popular', 'new', 'recommended').optional(),
 });
 
+// Получить все бренды с валидацией запроса
 const getAllBrands = async (query) => {
   const { error, value } = querySchema.validate(query);
   if (error) throw new AppError(error.details[0].message, 400);
   return brandModel.getAllBrands(value);
 };
 
+// Получить краткий список всех брендов
 const getAllBrandsBrief = async () => {
   return brandModel.getAllBrandsBrief();
 };
 
+// Получить бренд по идентификатору
 const getBrandByIdentifier = async (identifier) => {
   const brand = await brandModel.getBrandByIdentifier(identifier);
-  if (!brand) throw new AppError('Brand not found', 404);
+  if (!brand) throw new AppError('Бренд не найден', 404);
   return brand;
 };
 
+// Создать новый бренд с валидацией
 const createBrand = async (data) => {
   const { error, value } = brandSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
   const existing = await brandModel.getBrandByName(value.name);
-  if (existing) throw new AppError('Brand name already exists', 409);
+  if (existing) throw new AppError('Название бренда уже существует', 409);
   return brandModel.createBrand(value);
 };
 
+// Обновить бренд с валидацией
 const updateBrand = async (id, data) => {
   const { error } = updateSchema.validate(data, { stripUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
   const brand = await brandModel.getBrandByIdentifier(id);
-  if (!brand) throw new AppError('Brand not found', 404);
+  if (!brand) throw new AppError('Бренд не найден', 404);
   return brandModel.updateBrand(id, data);
 };
 
+// Удалить бренд с проверкой на связанные продукты
 const deleteBrand = async (id) => {
   const brand = await brandModel.getBrandByIdentifier(id);
-  if (!brand) throw new AppError('Brand not found', 404);
+  if (!brand) throw new AppError('Бренд не найден', 404);
   const products = await productModel.getProductsByBrand(id);
   if (products.length > 0)
     throw new AppError(
@@ -85,7 +94,7 @@ const deleteBrand = async (id) => {
 module.exports = {
   getAllBrands,
   getAllBrandsBrief,
-  getBrandByIdentifier, // Изменили имя
+  getBrandByIdentifier,
   createBrand,
   updateBrand,
   deleteBrand,

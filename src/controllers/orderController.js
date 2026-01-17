@@ -320,6 +320,7 @@ module.exports = {
   // Админские
   getAllOrders,
   getOrderDetailsAdmin,
+  createAdminOrderController,
   updateOrderStatus,
   updateOrder,
   deleteOrder,

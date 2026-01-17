@@ -1,5 +1,7 @@
+// src/models/brandModel.js
 const db = require('../config/db');
 
+// Получить все бренды с пагинацией, фильтрами и поиском
 const getAllBrands = async ({
   page = 1,
   limit = 8,
@@ -60,6 +62,7 @@ const getAllBrands = async ({
     highlights: brand.highlights,
     productsCount: brand.productsCount,
     isFeatured: brand.is_featured,
+    slug: brand.slug
   }));
   const countQuery = `SELECT COUNT(*) ${baseQuery}`;
   const { rows: countRows } = await db.query(countQuery, params);
@@ -69,12 +72,11 @@ const getAllBrands = async ({
   return { brands: mappedBrands, total, page, pages, limit, hasMore };
 };
 
-// НОВАЯ: Универсальная функция для поиска по identifier (id или slug)
+// Получить бренд по идентификатору (id или slug)
 const getBrandByIdentifier = async (identifier) => {
   let query =
     'SELECT b.*, (SELECT COUNT(*) FROM product_products p WHERE p.brand_id = b.id) AS "productsCount" FROM product_brands b WHERE ';
   let param = identifier;
-
   const idNum = parseInt(identifier, 10);
   if (!isNaN(idNum)) {
     query += 'b.id = $1';
@@ -82,7 +84,6 @@ const getBrandByIdentifier = async (identifier) => {
   } else {
     query += 'b.slug = $1';
   }
-
   const { rows } = await db.query(query, [param]);
   const brand = rows[0];
   if (!brand) return null;
@@ -101,6 +102,7 @@ const getBrandByIdentifier = async (identifier) => {
   };
 };
 
+// Получить бренд по имени
 const getBrandByName = async (name) => {
   const { rows } = await db.query(
     'SELECT * FROM product_brands WHERE name = $1',
@@ -109,6 +111,7 @@ const getBrandByName = async (name) => {
   return rows[0];
 };
 
+// Получить краткий список всех активных брендов
 const getAllBrandsBrief = async () => {
   const { rows } = await db.query(
     'SELECT id, name, logo_url, slug FROM product_brands WHERE is_active = true ORDER BY name ASC'
@@ -121,8 +124,8 @@ const getAllBrandsBrief = async () => {
   }));
 };
 
+// Создать новый бренд
 const createBrand = async (data) => {
-  // Дефолты перед INSERT
   data.is_active = data.is_active !== undefined ? data.is_active : true;
   data.country = data.country || 'Южная Корея';
   data.highlights = data.highlights || [];
@@ -141,7 +144,7 @@ const createBrand = async (data) => {
   } = data;
   const { rows } = await db.query(
     `INSERT INTO product_brands (name, description, website, logo_url, is_active, full_description, country, founded, philosophy, highlights)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`, // Убрали is_featured
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`, 
     [
       name,
       description,
@@ -157,8 +160,7 @@ const createBrand = async (data) => {
   );
   const created = rows[0];
   const brandId = created.id;
-
-  // Генерируем logo_url если не указан
+ 
   const updates = {};
   if (!created.logo_url) {
     updates.logo_url = `/uploads/brands/${brandId}/main.jpg`;
@@ -176,6 +178,7 @@ const createBrand = async (data) => {
   return getBrandByIdentifier(brandId);
 };
 
+// Обновить бренд
 const updateBrand = async (id, data) => {
   if (data.highlights) {
     data.highlights = JSON.stringify(data.highlights);
@@ -191,13 +194,14 @@ const updateBrand = async (id, data) => {
   return getBrandByIdentifier(id);
 };
 
+// Удалить бренд
 const deleteBrand = async (id) => {
   await db.query('DELETE FROM product_brands WHERE id = $1', [id]);
 };
 
 module.exports = {
   getAllBrands,
-  getBrandByIdentifier, // Изменили имя
+  getBrandByIdentifier,
   getBrandByName,
   getAllBrandsBrief,
   createBrand,
