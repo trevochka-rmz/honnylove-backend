@@ -1,6 +1,7 @@
+// src/models/productModel.js
 const db = require('../config/db');
 
-// Универсальная функция для получения продуктов (с параметром isAdmin для выбора view)
+// Получить все продукты с пагинацией и фильтрами
 const getAllProducts = async ({
   page = 1,
   limit = 9,
@@ -14,7 +15,7 @@ const getAllProducts = async ({
   isBestseller,
   isOnSale,
   sort = 'id_desc',
-  isAdmin = false, // НОВОЕ: Флаг для админ-версии
+  isAdmin = false,
 }) => {
   // Выбираем view в зависимости от isAdmin
   const viewName = isAdmin ? 'admin_product_view' : 'product_view';
@@ -39,18 +40,18 @@ const getAllProducts = async ({
   }
   if (search) {
     where += (where ? ' AND' : '') +
-      ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
-      ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
+    ` (name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1}` +
+    ` OR brand ILIKE $${params.length + 1} OR category_name ILIKE $${params.length + 1})`;
     params.push(`%${search}%`);
   }
   if (minPrice) {
     where += (where ? ' AND' : '') +
-      ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
+    ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
     params.push(minPrice);
   }
   if (maxPrice) {
     where += (where ? ' AND' : '') +
-      ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
+    ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
     params.push(maxPrice);
   }
   if (isFeatured !== undefined) {
@@ -68,10 +69,10 @@ const getAllProducts = async ({
   if (isOnSale !== undefined) {
     if (isOnSale) {
       where += (where ? ' AND' : '') +
-        ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
+      ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
     } else {
       where += (where ? ' AND' : '') +
-        ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
+      ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
     }
   }
   if (sort === 'new_random' && isNew === undefined) {
@@ -115,39 +116,34 @@ const getAllProducts = async ({
   const hasMore = page < pages;
   products.forEach(product => {
     if (product.stockQuantity !== undefined) {
-      product.stockQuantity = Number(product.stockQuantity) || 0; // String -> number, null -> 0
+      product.stockQuantity = Number(product.stockQuantity) || 0; 
     }
   });
   return { products, total, page, pages, limit, hasMore };
 };
 
-// НОВАЯ: Универсальная функция для поиска по id или slug
+// Получить продукт по идентификатору (id или slug)
 const getProductByIdentifier = async (identifier, isAdmin = false) => {
   const viewName = isAdmin ? 'admin_product_view' : 'product_view';
   let query;
   let param = identifier;
-
-  // Проверяем, является ли identifier числом (id)
   const idNum = parseInt(identifier, 10);
   if (!isNaN(idNum)) {
     query = `SELECT * FROM ${viewName} WHERE id = $1`;
-    param = idNum; // Используем число
+    param = idNum; 
   } else {
     query = `SELECT * FROM ${viewName} WHERE slug = $1`;
-    // param остается строкой (slug)
   }
-
   const { rows } = await db.query(query, [param]);
   let product = rows[0];
-
-  // Преобразование stockQuantity в number, если поле существует
+  
   if (product && product.stockQuantity !== undefined) {
     product.stockQuantity = Number(product.stockQuantity) || 0;
   }
-
   return product;
 };
 
+// Создать новый продукт
 const createProduct = async (data) => {
   const defaultAttributes = {
     usage: 'Скоро будет',
@@ -207,9 +203,10 @@ const createProduct = async (data) => {
     );
   }
   // Если не передано — остаётся 0 от триггера
-  return getProductByIdentifier(productId, true); // Возвращаем админ-версию (изменили на Identifier)
+  return getProductByIdentifier(productId, true); // Возвращаем админ-версию
 };
 
+// Обновить продукт
 const updateProduct = async (id, data) => {
   // Обработка stockQuantity, если передано
   if (data.stockQuantity !== undefined) {
@@ -232,9 +229,9 @@ const updateProduct = async (id, data) => {
         [id, 1, quantity, 0]
       );
     }
-    delete data.stockQuantity; // Удаляем, чтобы не обновлять в product_products
+    delete data.stockQuantity; 
   }
-  // НОВОЕ: Partial update для attributes — мержим с текущими из БД, без defaults
+  // Partial update для attributes — мержим с текущими из БД, без defaults
   if (data.attributes) {
     // Получаем текущие attributes из БД
     const { rows: currentRows } = await db.query(
@@ -244,9 +241,9 @@ const updateProduct = async (id, data) => {
     if (currentRows.length === 0) {
       throw new Error('Product not found');
     }
-    // ИЗМЕНЕНО: Нет JSON.parse — pg уже возвращает object (parsed jsonb)
-    let currentAttrs = currentRows[0].attributes || {}; // Если null, пустой объект
-    // Мержим с новыми атрибутами (обновляем только указанные ключи)
+    
+    let currentAttrs = currentRows[0].attributes || {}; 
+    
     const updatedAttrs = { ...currentAttrs, ...data.attributes };
     data.attributes = JSON.stringify(updatedAttrs);
   }
@@ -274,14 +271,16 @@ const updateProduct = async (id, data) => {
     `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
     [id, ...values]
   );
-  return getProductByIdentifier(id, true); // Изменили на Identifier
+  return getProductByIdentifier(id, true); 
 };
 
+// Удалить продукт
 const deleteProduct = async (id) => {
   await db.query('DELETE FROM product_inventory WHERE product_id = $1', [id]);
   await db.query('DELETE FROM product_products WHERE id = $1', [id]);
 };
 
+// Поиск продуктов
 const searchProducts = async (query) => {
   const { rows } = await db.query(
     'SELECT * FROM product_view WHERE name ILIKE $1 OR description ILIKE $1' +
@@ -291,6 +290,7 @@ const searchProducts = async (query) => {
   return rows;
 };
 
+// Получить продукты по бренду
 const getProductsByBrand = async (brandId) => {
   const { rows } = await db.query(
     'SELECT * FROM product_view WHERE brand_id = $1',
@@ -301,7 +301,7 @@ const getProductsByBrand = async (brandId) => {
 
 module.exports = {
   getAllProducts,
-  getProductByIdentifier, // Изменили имя с getProductById
+  getProductByIdentifier,
   createProduct,
   updateProduct,
   deleteProduct,

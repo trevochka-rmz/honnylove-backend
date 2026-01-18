@@ -1,14 +1,15 @@
+// src/services/productService.js
 const Joi = require('joi');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
 
-// Схема для создания (теперь с stockQuantity)
+// Схема валидации для создания продукта
 const productSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().optional(),
   purchase_price: Joi.number().positive().required(),
   retail_price: Joi.number().positive().required(),
-  discount_price: Joi.number().min(0).allow(null).optional(), // ИЗМЕНЕНО: .min(0) вместо .positive(), + .allow(null)
+  discount_price: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().required(),
   category_id: Joi.number().integer().required(),
   supplier_id: Joi.number().integer().optional(),
@@ -41,15 +42,16 @@ const productSchema = Joi.object({
     .default({}),
   meta_title: Joi.string().optional(),
   meta_description: Joi.string().optional(),
-  stockQuantity: Joi.number().integer().min(0).optional(), // НОВОЕ: Для установки количества при создании
+  stockQuantity: Joi.number().integer().min(0).optional(),
 });
 
+// Схема валидации для обновления продукта
 const updateSchema = Joi.object({
   name: Joi.string().optional(),
   description: Joi.string().optional(),
   purchase_price: Joi.number().positive().optional(),
   retail_price: Joi.number().positive().optional(),
-  discount_price: Joi.number().min(0).allow(null).optional(), // ИЗМЕНЕНО: .min(0) вместо .positive(), + .allow(null)
+  discount_price: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().optional(),
   category_id: Joi.number().integer().optional(),
   supplier_id: Joi.number().integer().optional(),
@@ -85,6 +87,7 @@ const updateSchema = Joi.object({
   stockQuantity: Joi.number().integer().min(0).optional(),
 });
 
+// Схема валидации для запроса списка продуктов
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(9),
@@ -110,46 +113,52 @@ const querySchema = Joi.object({
     .default('id_desc'),
 });
 
+// Получить все продукты с валидацией запроса
 const getAllProducts = async (query, isAdmin = false) => {
   const { error, value } = querySchema.validate(query);
   if (error) throw new AppError(error.details[0].message, 400);
   return productModel.getAllProducts({ ...value, isAdmin });
 };
 
+// Получить продукт по идентификатору
 const getProductByIdentifier = async (identifier, isAdmin = false) => {
   const product = await productModel.getProductByIdentifier(identifier, isAdmin);
-  if (!product) throw new AppError('Product not found', 404);
+  if (!product) throw new AppError('Продукт не найден', 404);
   return product;
 };
 
+// Создать новый продукт с валидацией
 const createProduct = async (data) => {
   const { error } = productSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
   return productModel.createProduct(data);
 };
 
+// Обновить продукт с валидацией
 const updateProduct = async (id, data) => {
   const { error } = updateSchema.validate(data, { allowUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
-  const product = await getProductByIdentifier(id); // Проверка существования (используем Identifier, но id — число)
-  if (!product) throw new AppError('Product not found', 404);
+  const product = await getProductByIdentifier(id); // Проверка существования
+  if (!product) throw new AppError('Продукт не найден', 404);
   return productModel.updateProduct(id, data);
 };
 
+// Удалить продукт
 const deleteProduct = async (id) => {
   const product = await getProductByIdentifier(id);
-  if (!product) throw new AppError('Product not found', 404);
+  if (!product) throw new AppError('Продукт не найден', 404);
   return productModel.deleteProduct(id);
 };
 
+// Поиск продуктов
 const searchProducts = async (query) => {
-  if (!query) throw new AppError('Search query is required', 400);
+  if (!query) throw new AppError('Не указан поисковый запрос', 400);
   return productModel.searchProducts(query);
 };
 
 module.exports = {
   getAllProducts,
-  getProductByIdentifier, 
+  getProductByIdentifier,
   createProduct,
   updateProduct,
   deleteProduct,
