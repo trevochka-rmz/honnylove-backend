@@ -6,21 +6,50 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 router.use(authenticate, requireRole(['customer']));
 
-// POST /api/cart - Добавить товар в корзину
-// Body: { "product_id": 123, "quantity": 2 }
+/**
+ * Добавить товар в корзину
+ * POST /api/cart
+ * Доступ: Customer
+ *
+ * Body:
+ * {
+ *   "product_id": 123 (обязательно, ID товара),
+ *   "quantity": 2 (обязательно, количество, min 1, max 50)
+ * }
+ */
 router.post('/', cartController.addToCart);
 
-// GET /api/cart - Получить корзину
+/**
+ * Получить корзину пользователя
+ * GET /api/cart
+ * Доступ: Customer
+ */
 router.get('/', cartController.getCart);
 
-// PUT /api/cart/:itemId - Изменить количество
-// Body: { "quantity": 3 }
+/**
+ * Обновить количество товара в корзине
+ * PUT /api/cart/:itemId
+ * Доступ: Customer
+ *
+ * Body:
+ * {
+ *   "quantity": 3 (обязательно, новое количество, min 1, max 50)
+ * }
+ */
 router.put('/:itemId', cartController.updateCartItem);
 
-// DELETE /api/cart/:itemId - Удалить товар из корзины
+/**
+ * Удалить товар из корзины
+ * DELETE /api/cart/:itemId
+ * Доступ: Customer
+ */
 router.delete('/:itemId', cartController.removeFromCart);
 
-// DELETE /api/cart - Очистить всю корзину
+/**
+ * Очистить всю корзину
+ * DELETE /api/cart
+ * Доступ: Customer
+ */
 router.delete('/', cartController.clearCart);
 
 module.exports = router;

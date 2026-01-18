@@ -1,35 +1,35 @@
-// models/userModel.js
+// src/models/userModel.js
 const db = require('../config/db');
 
-// Получение пользователя по id
+// Получить пользователя по ID
 const getUserById = async (id) => {
   const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id]);
   return rows[0];
 };
 
-// Получение пользователя по username
+// Получить пользователя по username
 const getUserByUsername = async (username) => {
   const { rows } = await db.query('SELECT * FROM users WHERE username = $1', [username]);
   return rows[0];
 };
 
-// Получение пользователя по id без sensitive полей
+// Получить пользователя по ID без конфиденциальных полей
 const getUserByIdSafe = async (id) => {
   const { rows } = await db.query(`
-    SELECT id, username, email, role, first_name, last_name, phone, address, 
-           is_active, created_at, updated_at, discount_percentage 
+    SELECT id, username, email, role, first_name, last_name, phone, address,
+           is_active, created_at, updated_at, discount_percentage
     FROM users WHERE id = $1
   `, [id]);
   return rows[0];
 };
 
-// Получение пользователя по email
+// Получить пользователя по email
 const getUserByEmail = async (email) => {
   const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
   return rows[0];
 };
 
-// Создание пользователя
+// Создать нового пользователя
 const createUser = async (data) => {
   data.discount_percentage = data.discount_percentage ?? 0.0;
   const {
@@ -61,7 +61,7 @@ const createUser = async (data) => {
   return rows[0];
 };
 
-// Обновление пользователя
+// Обновить пользователя
 const updateUser = async (id, data) => {
   const fields = Object.keys(data)
     .map((key, idx) => `${key} = $${idx + 2}`)
@@ -74,26 +74,25 @@ const updateUser = async (id, data) => {
   return rows[0];
 };
 
-// Удаление пользователя
+// Удалить пользователя и связанные данные
 const deleteUser = async (id) => {
   await db.query('DELETE FROM cart_items WHERE user_id = $1', [id]);
   await db.query('DELETE FROM wishlist_items WHERE user_id = $1', [id]);
   await db.query('DELETE FROM product_reviews WHERE user_id = $1', [id]);
   await db.query('DELETE FROM orders WHERE user_id = $1', [id]);
-
   await db.query('DELETE FROM users WHERE id = $1', [id]);
 };
 
-// Обновление refresh_token
+// Обновить refresh_token пользователя
 const updateRefreshToken = async (id, token) => {
   return updateUser(id, { refresh_token: token });
 };
 
-// Получение всех пользователей
+// Получить всех пользователей с пагинацией и фильтром по роли
 const getAllUsers = async ({ page = 1, limit = 10, role }) => {
   let query = `
-    SELECT id, username, email, role, first_name, last_name, phone, address, 
-           is_active, created_at, updated_at, discount_percentage 
+    SELECT id, username, email, role, first_name, last_name, phone, address,
+           is_active, created_at, updated_at, discount_percentage
     FROM users
   `;
   const params = [];
@@ -107,7 +106,7 @@ const getAllUsers = async ({ page = 1, limit = 10, role }) => {
   return rows;
 };
 
-// Получение профиля пользователя
+// Получить профиль пользователя с дополнительной статистикой
 const getUserProfile = async (id) => {
   const user = await getUserById(id);
   if (!user) return null;

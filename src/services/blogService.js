@@ -1,8 +1,9 @@
-// services/blogService.js
+// src/services/blogService.js
 const Joi = require('joi');
 const blogModel = require('../models/blogModel');
 const AppError = require('../utils/errorUtils');
 
+// Схема валидации для создания поста блога
 const blogSchema = Joi.object({
   title: Joi.string().required().messages({ 'any.required': 'Поле "title" обязательно' }),
   excerpt: Joi.string().required().messages({ 'any.required': 'Поле "excerpt" обязательно' }),
@@ -15,6 +16,7 @@ const blogSchema = Joi.object({
   tags: Joi.array().items(Joi.string()).default([]),
 });
 
+// Схема валидации для обновления поста блога (все поля опциональные)
 const updateSchema = Joi.object({
   title: Joi.string().optional(),
   excerpt: Joi.string().optional(),
@@ -27,6 +29,7 @@ const updateSchema = Joi.object({
   tags: Joi.array().items(Joi.string()).optional(),
 });
 
+// Схема валидации для запросов списка постов
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(10),
@@ -38,41 +41,37 @@ const querySchema = Joi.object({
   ).optional(),
 });
 
-// Получение всех постов
+// Получить все посты блога с валидацией запроса
 const getAllBlogPosts = async (query) => {
   const { error, value } = querySchema.validate(query);
   if (error) throw new AppError(error.details[0].message, 400);
   return blogModel.getAllBlogPosts(value);
 };
 
-// Получение поста по identifier
+// Получить пост блога по идентификатору
 const getBlogPostByIdentifier = async (identifier) => {
   const post = await blogModel.getBlogPostByIdentifier(identifier);
   if (!post) throw new AppError('Пост не найден', 404);
   return post;
 };
 
-// Создание поста
+// Создать новый пост блога с валидацией
 const createBlogPost = async (data, imageFile) => {
   const { error, value } = blogSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  
   return blogModel.createBlogPost(value, imageFile);
 };
 
-// Обновление поста
+// Обновить пост блога с валидацией
 const updateBlogPost = async (id, data, imageFile) => {
   const { error, value } = updateSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  
   const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
-  
   return blogModel.updateBlogPost(id, value, imageFile);
 };
 
-
-// Удаление поста
+// Удалить пост блога
 const deleteBlogPost = async (id) => {
   const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
