@@ -1,7 +1,7 @@
 // src/models/categoryModel.js
 const db = require('../config/db');
 
-// Вспомогательная функция: Рассчитать level на основе parent_id
+// Рассчитать уровень категории на основе родителя
 const calculateLevel = async (parent_id) => {
   if (!parent_id) return 1; // Корневая категория
   const { rows } = await db.query(
@@ -16,7 +16,7 @@ const calculateLevel = async (parent_id) => {
   return newLevel;
 };
 
-// Вспомогательная функция: Рассчитать display_order (max +1 среди siblings)
+// Рассчитать порядок отображения (max +1 среди siblings)
 const calculateDisplayOrder = async (parent_id, currentId = null) => {
   let query =
     'SELECT MAX(display_order) as max_order FROM product_categories WHERE parent_id';
@@ -35,7 +35,7 @@ const calculateDisplayOrder = async (parent_id, currentId = null) => {
   return (rows[0].max_order || 0) + 1;
 };
 
-// Получить все категории в формате дерева (3 уровня) - для фронта
+// Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async () => {
   const query = `
         SELECT
@@ -74,7 +74,7 @@ const getAllCategoriesForFrontend = async () => {
   return rows;
 };
 
-// НОВАЯ: Получить категорию по identifier (id или slug) с подкатегориями
+// Получить категорию по идентификатору (id или slug) с подкатегориями
 const getCategoryByIdentifier = async (identifier) => {
   let query = `
         SELECT
@@ -90,24 +90,19 @@ const getCategoryByIdentifier = async (identifier) => {
         FROM product_categories
         WHERE `;
   let param = identifier;
-
-  // Проверяем, является ли identifier числом (id)
   const idNum = parseInt(identifier, 10);
   if (!isNaN(idNum)) {
     query += 'id = $1';
     param = idNum;
   } else {
     query += 'slug = $1';
-    // param - строка (slug)
   }
-
   const { rows: categoryRows } = await db.query(query, [param]);
   if (categoryRows.length === 0) {
     return null;
   }
   const category = categoryRows[0];
 
-  // Добавляем количество товаров
   const countQuery = `
         SELECT COUNT(*) as count
         FROM product_products
@@ -115,8 +110,7 @@ const getCategoryByIdentifier = async (identifier) => {
     `;
   const { rows: countRows } = await db.query(countQuery, [category.id]);
   category.product_count = parseInt(countRows[0].count, 10);
-
-  // Получаем прямых детей
+ 
   const childrenQuery = `
         SELECT
             id,
@@ -130,8 +124,7 @@ const getCategoryByIdentifier = async (identifier) => {
         ORDER BY display_order, name
     `;
   const { rows: childrenRows } = await db.query(childrenQuery, [category.id]);
-
-  // Добавляем count для детей
+  
   const childrenWithCounts = await Promise.all(
     childrenRows.map(async (child) => {
       const childCountQuery = `
@@ -147,15 +140,13 @@ const getCategoryByIdentifier = async (identifier) => {
     })
   );
   category.children = childrenWithCounts;
-
   return category;
 };
 
-// Получить простую категорию по identifier (без детей, для update/delete)
+// Получить простую категорию по идентификатору (без детей)
 const getCategorySimple = async (identifier) => {
   let query = 'SELECT * FROM product_categories WHERE ';
   let param = identifier;
-
   const idNum = parseInt(identifier, 10);
   if (!isNaN(idNum)) {
     query += 'id = $1';
@@ -163,12 +154,11 @@ const getCategorySimple = async (identifier) => {
   } else {
     query += 'slug = $1';
   }
-
   const { rows } = await db.query(query, [param]);
   return rows[0];
 };
 
-// Получить категорию по имени (для проверки уникальности)
+// Получить категорию по имени
 const getCategoryByName = async (name) => {
   const { rows } = await db.query(
     'SELECT * FROM product_categories WHERE name = $1',
@@ -177,7 +167,7 @@ const getCategoryByName = async (name) => {
   return rows[0];
 };
 
-// Получить все категории с пагинацией, фильтрами (аналогично брендам)
+// Получить все категории с пагинацией и фильтрами
 const getAllCategories = async ({
   page = 1,
   limit = 10,
@@ -236,18 +226,16 @@ const getAllCategories = async ({
   return { categories: mappedCategories, total, page, pages, limit, hasMore };
 };
 
-// Создать категорию с дефолтами и расчетами
+// Создать новую категорию
 const createCategory = async (data) => {
-  // Дефолты
   data.is_active = data.is_active !== undefined ? data.is_active : true;
-  data.display_order = data.display_order || 0; // Временный, потом пересчитаем
+  data.display_order = data.display_order || 0; 
   data.parent_id = data.parent_id || null;
   data.description = data.description || null;
-  data.slug = data.slug || null; // Если нужно генерировать, добавьте slugify(data.name)
+  data.slug = data.slug || null; 
   const { name, parent_id, description, slug, is_active, display_order } =
     data;
 
-  // Вставка базовой записи
   const { rows } = await db.query(
     `INSERT INTO product_categories (name, parent_id, description, slug, is_active, display_order)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
@@ -256,20 +244,16 @@ const createCategory = async (data) => {
   const created = rows[0];
   const categoryId = created.id;
 
-  // Рассчитываем level
   const level = await calculateLevel(parent_id);
-
-  // Если display_order == 0 (дефолт), рассчитываем реальный
+  
   let finalDisplayOrder = display_order;
   if (display_order === 0) {
     finalDisplayOrder = await calculateDisplayOrder(parent_id);
   }
 
-  // Дефолт image_url
   const image_url =
     created.image_url || `/uploads/categories/${categoryId}/main.jpg`;
-
-  // Обновляем запись с рассчитанными значениями
+ 
   await db.query(
     `UPDATE product_categories SET
             level = $1,
@@ -279,17 +263,14 @@ const createCategory = async (data) => {
         WHERE id = $4`,
     [level, finalDisplayOrder, image_url, categoryId]
   );
-
-  // Возвращаем полную категорию
   return getCategoryByIdentifier(categoryId);
 };
 
-// Обновить категорию с пересчетом level/display_order если изменился parent_id
+// Обновить категорию
 const updateCategory = async (id, data) => {
   const current = await getCategorySimple(id);
   if (!current) throw new Error('Категория не найдена');
-
-  // Если изменился parent_id, пересчитываем level и display_order
+  
   let needRecalc = false;
   if (data.parent_id !== undefined && data.parent_id !== current.parent_id) {
     needRecalc = true;
@@ -297,7 +278,6 @@ const updateCategory = async (id, data) => {
     data.display_order = await calculateDisplayOrder(data.parent_id, id);
   }
 
-  // Обновляем только предоставленные поля
   const fields = Object.keys(data)
     .map((key, idx) => `${key} = $${idx + 2}`)
     .join(', ');
@@ -307,7 +287,7 @@ const updateCategory = async (id, data) => {
       `UPDATE product_categories SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
       [id, ...values]
     );
-    // Если image_url изменился на null или пусто, устанавливаем дефолт
+   
     if (data.image_url === null || data.image_url === '') {
       await db.query(
         `UPDATE product_categories SET image_url = $1 WHERE id = $2`,
@@ -321,7 +301,6 @@ const updateCategory = async (id, data) => {
 
 // Удалить категорию с проверками
 const deleteCategory = async (id) => {
-  // Проверка на детей (подкатегории)
   const { rows: children } = await db.query(
     'SELECT COUNT(*) FROM product_categories WHERE parent_id = $1',
     [id]
@@ -332,7 +311,6 @@ const deleteCategory = async (id) => {
     );
   }
 
-  // Проверка на продукты
   const { rows: products } = await db.query(
     'SELECT COUNT(*) FROM product_products WHERE category_id = $1',
     [id]
@@ -343,13 +321,12 @@ const deleteCategory = async (id) => {
     );
   }
 
-  // Если проверок нет, удаляем
   await db.query('DELETE FROM product_categories WHERE id = $1', [id]);
 };
 
 module.exports = {
   getAllCategories,
-  getCategoryByIdentifier, // Новая
+  getCategoryByIdentifier,
   getCategorySimple,
   getCategoryByName,
   createCategory,

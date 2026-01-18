@@ -2,11 +2,11 @@
 const categoryService = require('../services/categoryService');
 const { addFullImageUrls } = require('../utils/imageUtils');
 
-// Получить все категории в формате дерева для фронта
+// Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async (req, res, next) => {
   try {
     const categories = await categoryService.getAllCategoriesForFrontend();
-    const processedCategories = addFullImageUrls(categories, req); // Добавляем full URLs к image_url
+    const processedCategories = addFullImageUrls(categories, req); 
     res.json({
       success: true,
       count: categories.length,
@@ -17,11 +17,11 @@ const getAllCategoriesForFrontend = async (req, res, next) => {
   }
 };
 
-// Получить категорию по identifier (с детьми)
+// Получить категорию по идентификатору
 const getCategoryByIdentifier = async (req, res, next) => {
   try {
     const category = await categoryService.getCategoryByIdentifier(req.params.identifier);
-    const processedCategory = addFullImageUrls(category, req); // Full URLs для image_url и children
+    const processedCategory = addFullImageUrls(category, req); 
     res.json({
       success: true,
       data: processedCategory,
@@ -31,7 +31,7 @@ const getCategoryByIdentifier = async (req, res, next) => {
   }
 };
 
-// Получить список категорий (с пагинацией для админки)
+// Получить список категорий с пагинацией
 const getCategories = async (req, res, next) => {
   try {
     const { categories, total, page, pages, limit, hasMore } =
@@ -39,14 +39,14 @@ const getCategories = async (req, res, next) => {
     const processedResult = addFullImageUrls(
       { categories, total, page, pages, limit, hasMore },
       req
-    ); // Full URLs
+    ); 
     res.json(processedResult);
   } catch (err) {
     next(err);
   }
 };
 
-// Создать категорию
+// Создать новую категорию
 const createCategory = async (req, res, next) => {
   try {
     const category = await categoryService.createCategory(req.body);
@@ -91,7 +91,7 @@ const deleteCategory = async (req, res, next) => {
 
 module.exports = {
   getCategories,
-  getCategoryByIdentifier, // Изменили имя
+  getCategoryByIdentifier,
   createCategory,
   updateCategory,
   deleteCategory,

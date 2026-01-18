@@ -3,6 +3,7 @@ const Joi = require('joi');
 const categoryModel = require('../models/categoryModel');
 const AppError = require('../utils/errorUtils');
 
+// Схема для добавления
 const categorySchema = Joi.object({
   name: Joi.string().required(),
   parent_id: Joi.number().integer().allow(null).optional(),
@@ -13,7 +14,7 @@ const categorySchema = Joi.object({
   image_url: Joi.string().optional(),
 });
 
-// Схема для update (все optional)
+// Схема для обновления (все поля опциональные)
 const updateSchema = Joi.object({
   name: Joi.string().optional(),
   parent_id: Joi.number().integer().allow(null).optional(),
@@ -24,6 +25,7 @@ const updateSchema = Joi.object({
   image_url: Joi.string().optional(),
 });
 
+// Схема для параметров
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(10),
@@ -32,7 +34,7 @@ const querySchema = Joi.object({
   filter: Joi.string().valid('popular', 'new').optional(),
 });
 
-// Построить дерево из плоских rows (3 уровня)
+// Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async () => {
   const rows = await categoryModel.getAllCategoriesForFrontend();
   const categoryTree = {};
@@ -83,7 +85,6 @@ const getAllCategoriesForFrontend = async () => {
       }
     }
   });
-  // Преобразуем в массив и сортируем children
   return Object.values(categoryTree).map((cat) => ({
     ...cat,
     children: Object.values(cat.children).map((subCat) => ({
@@ -93,7 +94,7 @@ const getAllCategoriesForFrontend = async () => {
   }));
 };
 
-// Получить категорию по identifier
+// Получить категорию по идентификатору
 const getCategoryByIdentifier = async (identifier) => {
   const category = await categoryModel.getCategoryByIdentifier(identifier);
   if (!category) throw new AppError('Категория не найдена', 404);
@@ -107,17 +108,16 @@ const getAllCategories = async (query) => {
   return categoryModel.getAllCategories(value);
 };
 
-// Создать категорию
+// Создать новую категорию с валидацией
 const createCategory = async (data) => {
   const { error, value } = categorySchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  // Проверка уникальности имени (опционально, но рекомендуется)
   const existing = await categoryModel.getCategoryByName(value.name);
   if (existing) throw new AppError('Имя категории уже существует', 409);
   return categoryModel.createCategory(value);
 };
 
-// Обновить категорию
+// Обновить категорию с валидацией
 const updateCategory = async (id, data) => {
   const { error, value } = updateSchema.validate(data, {
     stripUnknown: true,
@@ -125,7 +125,6 @@ const updateCategory = async (id, data) => {
   if (error) throw new AppError(error.details[0].message, 400);
   const category = await categoryModel.getCategorySimple(id);
   if (!category) throw new AppError('Категория не найдена', 404);
-  // Если меняем name, проверяем уникальность (кроме себя)
   if (value.name && value.name !== category.name) {
     const existing = await categoryModel.getCategoryByName(value.name);
     if (existing) throw new AppError('Имя категории уже существует', 409);
@@ -133,11 +132,10 @@ const updateCategory = async (id, data) => {
   return categoryModel.updateCategory(id, value);
 };
 
-// Удалить категорию
+// Удалить категорию с проверками
 const deleteCategory = async (id) => {
   const category = await categoryModel.getCategorySimple(id);
   if (!category) throw new AppError('Категория не найдена', 404);
-  // Проверки уже в модели, но здесь можно добавить дополнительные
   try {
     await categoryModel.deleteCategory(id);
   } catch (err) {
@@ -147,7 +145,7 @@ const deleteCategory = async (id) => {
 
 module.exports = {
   getAllCategories,
-  getCategoryByIdentifier, // Изменили на Identifier
+  getCategoryByIdentifier,
   createCategory,
   updateCategory,
   deleteCategory,
