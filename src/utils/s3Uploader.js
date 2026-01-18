@@ -14,25 +14,35 @@ const s3Client = new S3Client({
 const BUCKET_NAME = process.env.YC_IMAGE_BUCKET;
 const CDN_BASE_URL = process.env.YC_CDN_URL;
 
-// Функция загрузки изображения для блога
-async function uploadBlogImage(fileBuffer, fileName, blogId) {
-    const fileExtension = path.extname(fileName);
-    const uniqueFileName = `main-${Date.now()}${fileExtension}`;
-    const s3Key = `uploads/blogs/${blogId}/${uniqueFileName}`;
+// Функция загрузки изображения
+async function uploadImage(fileBuffer, fileName, entityType, entityId, imageName = 'main') {
+    const fileExtension = path.extname(fileName).toLowerCase();
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+    
+    if (!allowedExtensions.includes(fileExtension)) {
+        throw new Error('Недопустимое расширение файла');
+    }
+    
+    let contentType = 'image/jpeg';
+    if (fileExtension === '.png') contentType = 'image/png';
+    if (fileExtension === '.webp') contentType = 'image/webp';
+    
+    const s3Key = `uploads/${entityType}/${entityId}/${imageName}${fileExtension}`;
 
     await s3Client.send(new PutObjectCommand({
         Bucket: BUCKET_NAME,
         Key: s3Key,
         Body: fileBuffer,
-        ContentType: 'image/jpeg',
+        ContentType: contentType,
         ACL: 'public-read',
+        CacheControl: 'public, max-age=31536000',
     }));
 
     return `${CDN_BASE_URL}/${s3Key}`;
 }
 
-// Функция удаления старого изображения
-async function deleteOldBlogImage(imageUrl) {
+// Удалить все изображения блога из S3
+async function deleteImageByUrl(imageUrl) {
     if (!imageUrl || !imageUrl.includes(CDN_BASE_URL)) return;
 
     const s3Key = imageUrl.replace(`${CDN_BASE_URL}/`, '');
@@ -43,11 +53,33 @@ async function deleteOldBlogImage(imageUrl) {
             Key: s3Key,
         }));
     } catch (error) {
-        console.error('Ошибка удаления старого файла из S3:', error.message);
+        console.error('Ошибка удаления файла из S3:', error.message);
+    }
+}
+
+// Удалить все изображения сущности из S3
+async function deleteEntityImages(entityType, entityId) {
+    try {
+        const extensions = ['.jpg', '.jpeg', '.png', '.webp'];
+        
+        for (const ext of extensions) {
+            const s3Key = `uploads/${entityType}/${entityId}/main${ext}`;
+            try {
+                await s3Client.send(new DeleteObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: s3Key,
+                }));
+            } catch (error) {
+                // Игнорируем ошибку, если файла нет
+            }
+        }
+    } catch (error) {
+        console.error(`Ошибка удаления изображений ${entityType} из S3:`, error.message);
     }
 }
 
 module.exports = {
-    uploadBlogImage,
-    deleteOldBlogImage
+    uploadImage,
+    deleteEntityImages,
+    deleteImageByUrl
 };

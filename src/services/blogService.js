@@ -2,6 +2,7 @@
 const Joi = require('joi');
 const blogModel = require('../models/blogModel');
 const AppError = require('../utils/errorUtils');
+const {validateImageFile} = require('../utils/imageUtils');
 
 // Схема валидации для создания поста блога
 const blogSchema = Joi.object({
@@ -59,6 +60,7 @@ const getBlogPostByIdentifier = async (identifier) => {
 const createBlogPost = async (data, imageFile) => {
   const { error, value } = blogSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
+  validateImageFile(imageFile);
   return blogModel.createBlogPost(value, imageFile);
 };
 
@@ -66,6 +68,7 @@ const createBlogPost = async (data, imageFile) => {
 const updateBlogPost = async (id, data, imageFile) => {
   const { error, value } = updateSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
+  validateImageFile(imageFile);
   const post = await blogModel.getBlogPostByIdentifier(id);
   if (!post) throw new AppError('Пост не найден', 404);
   return blogModel.updateBlogPost(id, value, imageFile);

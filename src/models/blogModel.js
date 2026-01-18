@@ -1,6 +1,6 @@
 // src/models/blogModel.js
 const db = require('../config/db');
-const { uploadBlogImage, deleteOldBlogImage } = require('../utils/s3Uploader');
+const { uploadImage, deleteEntityImages, deleteImageByUrl } = require('../utils/s3Uploader');
 
 // Получить все посты блога с пагинацией и фильтрами
 const getAllBlogPosts = async ({
@@ -98,7 +98,7 @@ const createBlogPost = async (postData, imageFile) => {
   const blogId = rows[0].id;
   let finalImageUrl = null;
   if (imageFile) {
-    finalImageUrl = await uploadBlogImage(imageFile.buffer, imageFile.originalname, blogId);
+    finalImageUrl = await uploadImage(imageFile.buffer, imageFile.originalname, 'blogs', blogId);
     await db.query(`UPDATE blog_posts SET image = $1 WHERE id = $2`, [finalImageUrl, blogId]);
   }
   return getBlogPostByIdentifier(blogId);
@@ -121,9 +121,9 @@ const updateBlogPost = async (id, updateData, newImageFile) => {
   let finalImageUrl = oldPost.image;
   if (newImageFile) {
     if (oldPost.image && oldPost.image !== 'pending') {
-      await deleteOldBlogImage(oldPost.image);
+      await deleteImageByUrl(oldPost.image);
     }
-    finalImageUrl = await uploadBlogImage(newImageFile.buffer, newImageFile.originalname, id);
+    finalImageUrl = await uploadImage(newImageFile.buffer, newImageFile.originalname,'blogs', id);
     fields.push(`image = $${paramIndex}`);
     values.push(finalImageUrl);
     paramIndex++;
@@ -138,6 +138,10 @@ const updateBlogPost = async (id, updateData, newImageFile) => {
 
 // Удалить пост блога
 const deleteBlogPost = async (id) => {
+  const post = await getBlogPostByIdentifier(id);
+  if (post && post.image && post.image !== 'pending') {
+      await deleteEntityImages('blogs', id);;
+  }
   await db.query('DELETE FROM blog_posts WHERE id = $1', [id]);
 };
 
