@@ -3,6 +3,7 @@ const Joi = require('joi');
 const brandModel = require('../models/brandModel');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
+const { validateImageFile } = require('../utils/imageUtils');
 
 // Схема валидации для создания бренда
 const brandSchema = Joi.object({
@@ -61,21 +62,23 @@ const getBrandByIdentifier = async (identifier) => {
 };
 
 // Создать новый бренд с валидацией
-const createBrand = async (data) => {
+const createBrand = async (data, logoFile) => {
   const { error, value } = brandSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
+  validateImageFile(logoFile);
   const existing = await brandModel.getBrandByName(value.name);
   if (existing) throw new AppError('Название бренда уже существует', 409);
-  return brandModel.createBrand(value);
+  return brandModel.createBrand(value, logoFile);
 };
 
 // Обновить бренд с валидацией
-const updateBrand = async (id, data) => {
+const updateBrand = async (id, data, logoFile) => {
   const { error } = updateSchema.validate(data, { stripUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
+  validateImageFile(logoFile);
   const brand = await brandModel.getBrandByIdentifier(id);
   if (!brand) throw new AppError('Бренд не найден', 404);
-  return brandModel.updateBrand(id, data);
+  return brandModel.updateBrand(id, data, logoFile);
 };
 
 // Удалить бренд с проверкой на связанные продукты

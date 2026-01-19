@@ -70,10 +70,21 @@ const deleteBlogPost = async (req, res, next) => {
   }
 };
 
+// Получить все уникальные тэги
+const getBlogTags = async (req, res, next) => {
+  try {
+    const tags = await blogService.getAllBlogTags();
+    res.json(tags);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getBlogPosts,
   getBlogPostByIdentifier,
   deleteBlogPost,
   updateBlogPost,
-  createBlogPost
+  createBlogPost,
+  getBlogTags,
 };

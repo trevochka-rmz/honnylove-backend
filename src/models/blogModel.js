@@ -157,10 +157,22 @@ const getAllBlogPostsBrief = async () => {
   return rows;
 };
 
+// Получить все уникальные теги из блогов
+const getAllBlogTags = async () => {
+  const { rows } = await db.query(`
+    SELECT DISTINCT unnest(tags) as tag 
+    FROM blog_posts 
+    WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
+    ORDER BY tag
+  `);
+  return rows.map(row => row.tag);
+};
+
 module.exports = {
   getAllBlogPosts,
   getBlogPostByIdentifier,
   createBlogPost,
+  getAllBlogTags,
   updateBlogPost,
   deleteBlogPost,
   getAllBlogPostsBrief,

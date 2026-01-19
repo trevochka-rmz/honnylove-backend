@@ -28,6 +28,14 @@ router.get('/', blogController.getBlogPosts);
  */
 router.get('/:identifier', blogController.getBlogPostByIdentifier);
 
+/**
+ * Получить все уникальные теги блога
+ * GET /api/blog/tags/all
+ * Доступ: Публичный
+ */
+router.get('/tags/all', blogController.getBlogTags);
+
+
 // АДМИНСКИЕ МАРШРУТЫ
 
 /**

@@ -1,6 +1,7 @@
 // src/controllers/categoryController.js
 const categoryService = require('../services/categoryService');
 const { addFullImageUrls } = require('../utils/imageUtils');
+const upload = require('../middleware/uploadMiddleware');
 
 // Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async (req, res, next) => {
@@ -47,37 +48,44 @@ const getCategories = async (req, res, next) => {
 };
 
 // Создать новую категорию
-const createCategory = async (req, res, next) => {
-  try {
-    const category = await categoryService.createCategory(req.body);
-    const processedCategory = addFullImageUrls(category, req);
-    res.status(201).json({
-      success: true,
-      message: 'Категория создана успешно',
-      data: processedCategory,
-    });
-  } catch (err) {
-    next(err);
+const createCategory = [
+  upload.single('image'),
+  async (req, res, next) => {
+      try {
+          const category = await categoryService.createCategory(req.body, req.file);
+          const processedCategory = addFullImageUrls(category, req);
+          res.status(201).json({
+              success: true,
+              message: 'Категория создана успешно',
+              data: processedCategory,
+          });
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Обновить категорию
-const updateCategory = async (req, res, next) => {
-  try {
-    const category = await categoryService.updateCategory(
-      req.params.id,
-      req.body
-    );
-    const processedCategory = addFullImageUrls(category, req);
-    res.json({
-      success: true,
-      message: 'Категория обновлена успешно',
-      data: processedCategory,
-    });
-  } catch (err) {
-    next(err);
+const updateCategory = [
+  upload.single('image'),
+  async (req, res, next) => {
+      try {
+          const category = await categoryService.updateCategory(
+              req.params.id,
+              req.body,
+              req.file
+          );
+          const processedCategory = addFullImageUrls(category, req);
+          res.json({
+              success: true,
+              message: 'Категория обновлена успешно',
+              data: processedCategory,
+          });
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Удалить категорию
 const deleteCategory = async (req, res, next) => {

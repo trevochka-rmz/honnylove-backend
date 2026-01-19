@@ -2,6 +2,7 @@
 const Joi = require('joi');
 const categoryModel = require('../models/categoryModel');
 const AppError = require('../utils/errorUtils');
+const { validateImageFile } = require('../utils/imageUtils');
 
 // Схема для добавления
 const categorySchema = Joi.object({
@@ -109,27 +110,36 @@ const getAllCategories = async (query) => {
 };
 
 // Создать новую категорию с валидацией
-const createCategory = async (data) => {
+const createCategory = async (data, imageFile) => {
   const { error, value } = categorySchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
+  
+  validateImageFile(imageFile);
+  
   const existing = await categoryModel.getCategoryByName(value.name);
   if (existing) throw new AppError('Имя категории уже существует', 409);
-  return categoryModel.createCategory(value);
+  
+  return categoryModel.createCategory(value, imageFile);
 };
 
 // Обновить категорию с валидацией
-const updateCategory = async (id, data) => {
+const updateCategory = async (id, data, imageFile) => {
   const { error, value } = updateSchema.validate(data, {
-    stripUnknown: true,
+      stripUnknown: true,
   });
   if (error) throw new AppError(error.details[0].message, 400);
+  
+  validateImageFile(imageFile);
+  
   const category = await categoryModel.getCategorySimple(id);
   if (!category) throw new AppError('Категория не найдена', 404);
+  
   if (value.name && value.name !== category.name) {
-    const existing = await categoryModel.getCategoryByName(value.name);
-    if (existing) throw new AppError('Имя категории уже существует', 409);
+      const existing = await categoryModel.getCategoryByName(value.name);
+      if (existing) throw new AppError('Имя категории уже существует', 409);
   }
-  return categoryModel.updateCategory(id, value);
+  
+  return categoryModel.updateCategory(id, value, imageFile);
 };
 
 // Удалить категорию с проверками

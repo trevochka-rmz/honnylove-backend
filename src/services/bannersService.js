@@ -2,6 +2,7 @@
 const Joi = require('joi');
 const bannersModel = require('../models/bannersModel');
 const AppError = require('../utils/errorUtils');
+const { validateImageFile } = require('../utils/imageUtils');
 
 // Схема валидации для создания баннера
 const bannerSchema = Joi.object({
@@ -53,19 +54,26 @@ const getBannerById = async (id) => {
 };
 
 // Создать новый баннер с валидацией
-const createBanner = async (data) => {
+const createBanner = async (data, imageFile) => {
   const { error, value } = bannerSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  return bannersModel.createBanner(value);
+  
+  validateImageFile(imageFile);
+  
+  return bannersModel.createBanner(value, imageFile);
 };
 
 // Обновить баннер с валидацией
-const updateBanner = async (id, data) => {
+const updateBanner = async (id, data, imageFile) => {
   const { error } = updateSchema.validate(data, { stripUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
+  
+  validateImageFile(imageFile);
+  
   const banner = await bannersModel.getBannerById(id);
   if (!banner) throw new AppError('Баннер не найден', 404);
-  return bannersModel.updateBanner(id, data);
+  
+  return bannersModel.updateBanner(id, data, imageFile);
 };
 
 // Удалить баннер

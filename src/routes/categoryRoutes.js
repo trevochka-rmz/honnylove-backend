@@ -40,7 +40,8 @@ router.get('/', categoryController.getCategories);
  * Создать новую категорию
  * POST /api/categories
  * Доступ: Admin
- *
+ * Multipart form-data (для изображения)
+ * 
  * Body:
  * {
  *   "name": "Название категории" (обязательно),
@@ -48,9 +49,9 @@ router.get('/', categoryController.getCategories);
  *   "description": "Описание" (опционально),
  *   "slug": "slug-example" (опционально),
  *   "is_active": true (опционально, по умолчанию true),
- *   "display_order": 0 (опционально, по умолчанию 0),
- *   "image_url": "/path/to/image.jpg" (опционально)
+ *   "display_order": 0 (опционально, по умолчанию 0)
  * }
+ * File: image (опционально, файл изображения)
  */
 router.post(
   '/',
@@ -60,21 +61,22 @@ router.post(
 );
 
 /**
- * Обновить категорию
- * PUT /api/categories/:id
- * Доступ: Admin
- *
- * Body: (все поля опциональны)
- * {
- *   "name": "Новое название" (опционально),
- *   "parent_id": 456 (опционально),
- *   "description": "Новое описание" (опционально),
- *   "slug": "new-slug" (опционально),
- *   "is_active": false (опционально),
- *   "display_order": 1 (опционально),
- *   "image_url": "/new/path.jpg" (опционально)
- * }
- */
+* Обновить категорию
+* PUT /api/categories/:id
+* Доступ: Admin
+* Multipart form-data (для изображения)
+* 
+* Body: (все поля опциональны)
+* {
+*   "name": "Новое название" (опционально),
+*   "parent_id": 456 (опционально),
+*   "description": "Новое описание" (опционально),
+*   "slug": "new-slug" (опционально),
+*   "is_active": false (опционально),
+*   "display_order": 1 (опционально)
+* }
+* File: image (опционально, новый файл изображения)
+*/
 router.put(
   '/:id',
   authenticate,

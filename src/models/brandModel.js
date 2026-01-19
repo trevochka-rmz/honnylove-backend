@@ -1,5 +1,6 @@
 // src/models/brandModel.js
 const db = require('../config/db');
+const { uploadImage, deleteEntityImages, deleteImageByUrl } = require('../utils/s3Uploader');
 
 // Получить все бренды с пагинацией, фильтрами и поиском
 const getAllBrands = async ({
@@ -125,27 +126,13 @@ const getAllBrandsBrief = async () => {
 };
 
 // Создать новый бренд
-const createBrand = async (data) => {
+const createBrand = async (data, logoFile) => {
   data.is_active = data.is_active !== undefined ? data.is_active : true;
   data.country = data.country || 'Южная Корея';
   data.highlights = data.highlights || [];
   data.highlights = JSON.stringify(data.highlights);
+  
   const {
-    name,
-    description,
-    website,
-    logo_url,
-    is_active,
-    full_description,
-    country,
-    founded,
-    philosophy,
-    highlights,
-  } = data;
-  const { rows } = await db.query(
-    `INSERT INTO product_brands (name, description, website, logo_url, is_active, full_description, country, founded, philosophy, highlights)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`, 
-    [
       name,
       description,
       website,
@@ -156,46 +143,75 @@ const createBrand = async (data) => {
       founded,
       philosophy,
       highlights,
-    ]
+  } = data;
+  
+  const { rows } = await db.query(
+      `INSERT INTO product_brands (name, description, website, logo_url, is_active, full_description, country, founded, philosophy, highlights) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+          name,
+          description,
+          website,
+          logo_url || 'pending',
+          is_active,
+          full_description,
+          country,
+          founded,
+          philosophy,
+          highlights,
+      ]
   );
-  const created = rows[0];
-  const brandId = created.id;
- 
-  const updates = {};
-  if (!created.logo_url) {
-    updates.logo_url = `/uploads/brands/${brandId}/main.jpg`;
+  
+  const brandId = rows[0].id;
+  let finalLogoUrl = logo_url || 'pending';
+  
+  if (logoFile) {
+      finalLogoUrl = await uploadImage(logoFile.buffer, logoFile.originalname, 'brands', brandId);
+      await db.query(`UPDATE product_brands SET logo_url = $1 WHERE id = $2`, [finalLogoUrl, brandId]);
   }
-  if (Object.keys(updates).length > 0) {
-    const updateFields = Object.keys(updates)
-      .map((key, idx) => `${key} = $${idx + 2}`)
-      .join(', ');
-    const updateValues = Object.values(updates);
-    await db.query(
-      `UPDATE product_brands SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [brandId, ...updateValues]
-    );
-  }
+  
   return getBrandByIdentifier(brandId);
 };
 
 // Обновить бренд
-const updateBrand = async (id, data) => {
+const updateBrand = async (id, data, newLogoFile) => {
+  const oldBrand = await getBrandByIdentifier(id);
+  if (!oldBrand) return null;
+  
   if (data.highlights) {
-    data.highlights = JSON.stringify(data.highlights);
+      data.highlights = JSON.stringify(data.highlights);
   }
+  
+  let finalLogoUrl = oldBrand.logo;
+  
+  if (newLogoFile) {
+      if (oldBrand.logo && oldBrand.logo !== 'pending') {
+          await deleteImageByUrl(oldBrand.logo);
+      }
+      
+      finalLogoUrl = await uploadImage(newLogoFile.buffer, newLogoFile.originalname, 'brands', id);
+      data.logo_url = finalLogoUrl;
+  }
+  
   const fields = Object.keys(data)
-    .map((key, idx) => `${key} = $${idx + 2}`)
-    .join(', ');
+      .map((key, idx) => `${key} = $${idx + 2}`)
+      .join(', ');
   const values = Object.values(data);
-  const { rows } = await db.query(
-    `UPDATE product_brands SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
-    [id, ...values]
+  
+  await db.query(
+      `UPDATE product_brands SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
+      [id, ...values]
   );
+  
   return getBrandByIdentifier(id);
 };
 
 // Удалить бренд
 const deleteBrand = async (id) => {
+  const brand = await getBrandByIdentifier(id);
+  if (brand && brand.logo && brand.logo !== 'pending') {
+      await deleteEntityImages('brands', id);
+  }
   await db.query('DELETE FROM product_brands WHERE id = $1', [id]);
 };
 

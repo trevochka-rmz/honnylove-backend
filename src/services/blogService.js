@@ -4,6 +4,18 @@ const blogModel = require('../models/blogModel');
 const AppError = require('../utils/errorUtils');
 const {validateImageFile} = require('../utils/imageUtils');
 
+// Определяем допустимые теги
+const ALLOWED_TAGS = [
+  'Уход за лицом',
+  'Красота и макияж', 
+  'Уход за волосами',
+  'Уход за телом',
+  'Здоровье и добавки',
+  'Домашняя одежда и уют',
+  'Советы экспертов',
+  'Новинки и обзоры'
+];
+
 // Схема валидации для создания поста блога
 const blogSchema = Joi.object({
   title: Joi.string().required().messages({ 'any.required': 'Поле "title" обязательно' }),
@@ -14,7 +26,7 @@ const blogSchema = Joi.object({
   author: Joi.string().required().messages({ 'any.required': 'Поле "author" обязательно' }),
   date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
   read_time: Joi.number().integer().min(1).required().messages({ 'any.required': 'Поле "read_time" обязательно' }),
-  tags: Joi.array().items(Joi.string()).default([]),
+  tags: Joi.array().items(Joi.string().valid(...ALLOWED_TAGS)).default([])
 });
 
 // Схема валидации для обновления поста блога (все поля опциональные)
@@ -27,7 +39,7 @@ const updateSchema = Joi.object({
   author: Joi.string().optional(),
   date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
   read_time: Joi.number().integer().min(1).optional(),
-  tags: Joi.array().items(Joi.string()).optional(),
+  tags: Joi.array().items(Joi.string().valid(...ALLOWED_TAGS)).optional().default([]),  
 });
 
 // Схема валидации для запросов списка постов
@@ -64,6 +76,11 @@ const createBlogPost = async (data, imageFile) => {
   return blogModel.createBlogPost(value, imageFile);
 };
 
+// Получить все тэги блогов
+const getAllBlogTags = async () => {
+  return blogModel.getAllBlogTags();
+};
+
 // Обновить пост блога с валидацией
 const updateBlogPost = async (id, data, imageFile) => {
   const { error, value } = updateSchema.validate(data);
@@ -87,4 +104,5 @@ module.exports = {
   createBlogPost,
   updateBlogPost,
   deleteBlogPost,
+  getAllBlogTags,
 };

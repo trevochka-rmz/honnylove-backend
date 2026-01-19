@@ -1,6 +1,7 @@
 // src/controllers/brandController.js
 const brandService = require('../services/brandService');
 const { addFullImageUrls } = require('../utils/imageUtils');
+const upload = require('../middleware/uploadMiddleware');
 
 // Получить список брендов
 const getBrands = async (req, res, next) => {
@@ -44,26 +45,32 @@ const getBrandByIdentifier = async (req, res, next) => {
 };
 
 // Создать новый бренд
-const createBrand = async (req, res, next) => {
-  try {
-    const brand = await brandService.createBrand(req.body);
-    const processedBrand = addFullImageUrls(brand, req);
-    res.status(201).json(processedBrand);
-  } catch (err) {
-    next(err);
+const createBrand = [
+  upload.single('logo'),
+  async (req, res, next) => {
+      try {
+          const brand = await brandService.createBrand(req.body, req.file);
+          const processedBrand = addFullImageUrls(brand, req);
+          res.status(201).json(processedBrand);
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Обновить бренд
-const updateBrand = async (req, res, next) => {
-  try {
-    const brand = await brandService.updateBrand(req.params.id, req.body);
-    const processedBrand = addFullImageUrls(brand, req);
-    res.json(processedBrand);
-  } catch (err) {
-    next(err);
+const updateBrand = [
+  upload.single('logo'),
+  async (req, res, next) => {
+      try {
+          const brand = await brandService.updateBrand(req.params.id, req.body, req.file);
+          const processedBrand = addFullImageUrls(brand, req);
+          res.json(processedBrand);
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Удалить бренд
 const deleteBrand = async (req, res, next) => {
