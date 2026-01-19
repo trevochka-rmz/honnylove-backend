@@ -1,5 +1,6 @@
 // src/models/productModel.js
 const db = require('../config/db');
+const { uploadImage, deleteEntityImages, deleteImageByUrl, uploadProductGalleryImages, deleteProductGallery } = require('../utils/s3Uploader');
 
 // Получить все продукты с пагинацией и фильтрами
 const getAllProducts = async ({
@@ -144,138 +145,175 @@ const getProductByIdentifier = async (identifier, isAdmin = false) => {
 };
 
 // Создать новый продукт
-const createProduct = async (data) => {
+const createProduct = async (data, mainImageFile, galleryFiles) => {
   const defaultAttributes = {
-    usage: 'Скоро будет',
-    variants: [{ name: 'Объём', value: '50мл' }],
-    ingredients: 'Скоро будет',
+      usage: 'Скоро будет',
+      variants: [{ name: 'Объём', value: '50мл' }],
+      ingredients: 'Скоро будет',
   };
   data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
   data.attributes = JSON.stringify(data.attributes);
-  if (data.image_urls) {
-    data.image_urls = JSON.stringify(data.image_urls);
-  }
-  // Если discount_price === 0, устанавливаем в null (сброс скидки)
+  
   if (data.discount_price === 0) {
-    data.discount_price = null;
+      data.discount_price = null;
   }
+  
   const fields = Object.keys(data).join(', ');
   const values = Object.values(data);
   const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
+  
   const { rows } = await db.query(
-    `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
-    values
+      `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
+      values
   );
+  
   const created = rows[0];
   const productId = created.id;
-  const updates = {};
-  if (!created.main_image_url) {
-    updates.main_image_url = `/uploads/products/${productId}/main.jpg`;
-  }
-  if (!created.image_urls || created.image_urls.length === 0) {
-    updates.image_urls = [
+  
+  let mainImageUrl = `/uploads/products/${productId}/main.jpg`;
+  let galleryUrls = [
       `/uploads/products/${productId}/gallery/1.jpg`,
       `/uploads/products/${productId}/gallery/2.jpg`,
-    ];
+  ];
+  
+  if (mainImageFile) {
+      mainImageUrl = await uploadImage(
+          mainImageFile.buffer,
+          mainImageFile.originalname,
+          'products',
+          productId,
+          'main'
+      );
   }
-  if (Object.keys(updates).length > 0) {
-    if (updates.image_urls) {
-      updates.image_urls = JSON.stringify(updates.image_urls);
-    }
-    const updateFields = Object.keys(updates)
-      .map((key, idx) => `${key} = $${idx + 2}`)
-      .join(', ');
-    const updateValues = Object.values(updates);
-    await db.query(
-      `UPDATE product_products SET ${updateFields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [productId, ...updateValues]
-    );
+  
+  if (galleryFiles && galleryFiles.length > 0) {
+      galleryUrls = await uploadProductGalleryImages(galleryFiles, productId);
   }
-  // Если stockQuantity передано, обновляем inventory (триггер уже создал запись с 0)
+  
+  await db.query(
+      `UPDATE product_products SET 
+          main_image_url = $1,
+          image_urls = $2,
+          updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $3`,
+      [mainImageUrl, JSON.stringify(galleryUrls), productId]
+  );
+  
   if (data.stockQuantity !== undefined) {
-    const quantity = parseInt(data.stockQuantity, 10);
-    if (isNaN(quantity) || quantity < 0) {
-      throw new Error('Invalid stockQuantity');
-    }
-    await db.query(
-      'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-      [quantity, productId, 1]
-    );
+      const quantity = parseInt(data.stockQuantity, 10);
+      if (isNaN(quantity) || quantity < 0) {
+          throw new Error('Invalid stockQuantity');
+      }
+      await db.query(
+          'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
+          [quantity, productId, 1]
+      );
   }
-  // Если не передано — остаётся 0 от триггера
-  return getProductByIdentifier(productId, true); // Возвращаем админ-версию
+  
+  return getProductByIdentifier(productId, true);
 };
 
 // Обновить продукт
-const updateProduct = async (id, data) => {
-  // Обработка stockQuantity, если передано
+const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
+  const currentProduct = await getProductByIdentifier(id, true);
+  if (!currentProduct) throw new Error('Продукт не найден');
+  
   if (data.stockQuantity !== undefined) {
-    const quantity = parseInt(data.stockQuantity, 10);
-    if (isNaN(quantity) || quantity < 0) {
-      throw new Error('Invalid stockQuantity');
-    }
-    const { rows: inventoryCheck } = await db.query(
-      'SELECT * FROM product_inventory WHERE product_id = $1 AND location_id = $2',
-      [id, 1]
-    );
-    if (inventoryCheck.length > 0) {
-      await db.query(
-        'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-        [quantity, id, 1]
+      const quantity = parseInt(data.stockQuantity, 10);
+      if (isNaN(quantity) || quantity < 0) {
+          throw new Error('Invalid stockQuantity');
+      }
+      const { rows: inventoryCheck } = await db.query(
+          'SELECT * FROM product_inventory WHERE product_id = $1 AND location_id = $2',
+          [id, 1]
       );
-    } else {
-      await db.query(
-        'INSERT INTO product_inventory (product_id, location_id, quantity, min_stock_level) VALUES ($1, $2, $3, $4)',
-        [id, 1, quantity, 0]
-      );
-    }
-    delete data.stockQuantity; 
+      if (inventoryCheck.length > 0) {
+          await db.query(
+              'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
+              [quantity, id, 1]
+          );
+      } else {
+          await db.query(
+              'INSERT INTO product_inventory (product_id, location_id, quantity, min_stock_level) VALUES ($1, $2, $3, $4)',
+              [id, 1, quantity, 0]
+          );
+      }
+      delete data.stockQuantity;
   }
-  // Partial update для attributes — мержим с текущими из БД, без defaults
+  
   if (data.attributes) {
-    // Получаем текущие attributes из БД
-    const { rows: currentRows } = await db.query(
-      'SELECT attributes FROM product_products WHERE id = $1',
-      [id]
-    );
-    if (currentRows.length === 0) {
-      throw new Error('Product not found');
-    }
-    
-    let currentAttrs = currentRows[0].attributes || {}; 
-    
-    const updatedAttrs = { ...currentAttrs, ...data.attributes };
-    data.attributes = JSON.stringify(updatedAttrs);
+      const { rows: currentRows } = await db.query(
+          'SELECT attributes FROM product_products WHERE id = $1',
+          [id]
+      );
+      if (currentRows.length === 0) {
+          throw new Error('Product not found');
+      }
+      let currentAttrs = currentRows[0].attributes || {};
+      const updatedAttrs = { ...currentAttrs, ...data.attributes };
+      data.attributes = JSON.stringify(updatedAttrs);
   }
-  if (!data.main_image_url) {
-    data.main_image_url = `/uploads/products/${id}/main.jpg`;
+  
+  let mainImageUrl = data.main_image_url || currentProduct.main_image_url;
+  let galleryUrls = data.image_urls || currentProduct.image_urls;
+  
+  if (newMainImageFile) {
+      if (currentProduct.main_image_url && !currentProduct.main_image_url.startsWith('/uploads/products/')) {
+          await deleteImageByUrl(currentProduct.main_image_url);
+      }
+      
+      mainImageUrl = await uploadImage(
+          newMainImageFile.buffer,
+          newMainImageFile.originalname,
+          'products',
+          id,
+          'main'
+      );
+      data.main_image_url = mainImageUrl;
   }
-  if (!data.image_urls || data.image_urls.length === 0) {
-    data.image_urls = [
-      `/uploads/products/${id}/gallery/1.jpg`,
-      `/uploads/products/${id}/gallery/2.jpg`,
-    ];
+  
+  if (newGalleryFiles && newGalleryFiles.length > 0) {
+      await deleteProductGallery(id);
+      
+      galleryUrls = await uploadProductGalleryImages(newGalleryFiles, id);
+      data.image_urls = JSON.stringify(galleryUrls);
   }
-  // Если discount_price === 0, устанавливаем в null (сброс скидки)
+  
   if (data.discount_price === 0) {
-    data.discount_price = null;
+      data.discount_price = null;
   }
-  if (data.image_urls) {
-    data.image_urls = JSON.stringify(data.image_urls);
+  
+  if (data.image_urls && typeof data.image_urls === 'object') {
+      data.image_urls = JSON.stringify(data.image_urls);
   }
+  
   const fields = Object.keys(data)
-    .map((key, idx) => `${key} = $${idx + 2}`)
-    .join(', ');
+      .map((key, idx) => `${key} = $${idx + 2}`)
+      .join(', ');
   const values = Object.values(data);
-  const { rows } = await db.query(
-    `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
-    [id, ...values]
-  );
-  return getProductByIdentifier(id, true); 
+  
+  if (fields) {
+      await db.query(
+          `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [id, ...values]
+      );
+  }
+  
+  return getProductByIdentifier(id, true);
 };
 
 // Удалить продукт
 const deleteProduct = async (id) => {
+  const product = await getProductByIdentifier(id);
+  if (product) {
+      if (product.main_image_url && !product.main_image_url.startsWith('/uploads/products/')) {
+          await deleteEntityImages('products', id);
+      }
+      if (product.image_urls && product.image_urls.length > 0) {
+          await deleteProductGallery(id);
+      }
+  }
+  
   await db.query('DELETE FROM product_inventory WHERE product_id = $1', [id]);
   await db.query('DELETE FROM product_products WHERE id = $1', [id]);
 };

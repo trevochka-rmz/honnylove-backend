@@ -78,8 +78,67 @@ async function deleteEntityImages(entityType, entityId) {
     }
 }
 
+// Загрузить несколько изображений галереи продукта
+async function uploadProductGalleryImages(files, productId) {
+    const galleryUrls = [];
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+        
+        if (!allowedExtensions.includes(fileExtension)) {
+            throw new Error(`Недопустимое расширение файла: ${fileExtension}`);
+        }
+        
+        let contentType = 'image/jpeg';
+        if (fileExtension === '.png') contentType = 'image/png';
+        if (fileExtension === '.webp') contentType = 'image/webp';
+        
+        const s3Key = `uploads/products/${productId}/gallery/${i + 1}${fileExtension}`;
+        
+        await s3Client.send(new PutObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: s3Key,
+            Body: file.buffer,
+            ContentType: contentType,
+            ACL: 'public-read',
+            CacheControl: 'public, max-age=31536000',
+        }));
+        
+        galleryUrls.push(`${CDN_BASE_URL}/${s3Key}`);
+    }
+    
+    return galleryUrls;
+}
+
+// Удалить галерею продукта
+async function deleteProductGallery(productId) {
+    try {
+        const extensions = ['.jpg', '.jpeg', '.png', '.webp'];
+        
+        for (let i = 1; i <= 10; i++) {
+            for (const ext of extensions) {
+                const s3Key = `uploads/products/${productId}/gallery/${i}${ext}`;
+                try {
+                    await s3Client.send(new DeleteObjectCommand({
+                        Bucket: BUCKET_NAME,
+                        Key: s3Key,
+                    }));
+                } catch (error) {
+                    // Игнорируем ошибку, если файла нет
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка удаления галереи продукта из S3:', error.message);
+    }
+}
+
 module.exports = {
     uploadImage,
     deleteEntityImages,
-    deleteImageByUrl
+    deleteImageByUrl,
+    uploadProductGalleryImages,
+    deleteProductGallery
 };

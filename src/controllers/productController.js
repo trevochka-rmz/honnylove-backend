@@ -1,6 +1,7 @@
 // src/controllers/productController.js
 const productService = require('../services/productService');
 const { addFullImageUrls } = require('../utils/imageUtils');
+const upload = require('../middleware/uploadMiddleware');
 
 // Получить список продуктов
 const getProducts = async (req, res, next, isAdmin = false) => {
@@ -35,26 +36,53 @@ const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
 };
 
 // Создать новый продукт
-const createProduct = async (req, res, next) => {
-  try {
-    let product = await productService.createProduct(req.body);
-    product = addFullImageUrls(product, req);
-    res.status(201).json(product);
-  } catch (err) {
-    next(err);
+const createProduct = [
+  upload.fields([
+      { name: 'mainImage', maxCount: 1 },
+      { name: 'gallery', maxCount: 10 }
+  ]),
+  async (req, res, next) => {
+      try {
+          const mainImageFile = req.files?.mainImage ? req.files.mainImage[0] : null;
+          const galleryFiles = req.files?.gallery || [];
+          
+          let product = await productService.createProduct(
+              req.body, 
+              mainImageFile, 
+              galleryFiles
+          );
+          product = addFullImageUrls(product, req);
+          res.status(201).json(product);
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Обновить продукт
-const updateProduct = async (req, res, next) => {
-  try {
-    let product = await productService.updateProduct(req.params.id, req.body);
-    product = addFullImageUrls(product, req);
-    res.json(product);
-  } catch (err) {
-    next(err);
+const updateProduct = [
+  upload.fields([
+      { name: 'mainImage', maxCount: 1 },
+      { name: 'gallery', maxCount: 2 }
+  ]),
+  async (req, res, next) => {
+      try {
+          const mainImageFile = req.files?.mainImage ? req.files.mainImage[0] : null;
+          const galleryFiles = req.files?.gallery || [];
+          
+          let product = await productService.updateProduct(
+              req.params.id, 
+              req.body, 
+              mainImageFile, 
+              galleryFiles
+          );
+          product = addFullImageUrls(product, req);
+          res.json(product);
+      } catch (err) {
+          next(err);
+      }
   }
-};
+];
 
 // Удалить продукт
 const deleteProduct = async (req, res, next) => {

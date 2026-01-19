@@ -78,39 +78,38 @@ router.get(
  * Создать новый продукт
  * POST /api/products
  * Доступ: Admin
- *
- * Body:
- * {
- *   "name": "Название" (обязательно),
- *   "description": "Описание" (опционально),
- *   "purchase_price": 100 (обязательно, положительное число),
- *   "retail_price": 200 (обязательно, положительное число),
- *   "discount_price": 150 (опционально, min 0 или null),
- *   "brand_id": 1 (обязательно),
- *   "category_id": 1 (обязательно),
- *   "supplier_id": 1 (опционально),
- *   "product_type": "Тип" (обязательно),
- *   "target_audience": "unisex" (по умолчанию unisex),
- *   "main_image_url": "/path.jpg" (опционально),
- *   "image_urls": ["/1.jpg", "/2.jpg"] (опционально, массив),
- *   "skin_type": "Тип кожи" (опционально),
- *   "weight_grams": 100 (опционально),
- *   "length_cm": 10 (опционально),
- *   "width_cm": 10 (опционально),
- *   "height_cm": 10 (опционально),
- *   "is_active": true (по умолчанию true),
- *   "is_featured": false (по умолчанию false),
- *   "is_new": true (по умолчанию true),
- *   "is_bestseller": false (по умолчанию false),
- *   "attributes": {
- *     "ingredients": "Ингредиенты" (опционально),
- *     "usage": "Использование" (опционально),
- *     "variants": [{"name": "Объём", "value": "50мл"}] (опционально)
- *   } (опционально),
- *   "meta_title": "Meta заголовок" (опционально),
- *   "meta_description": "Meta описание" (опционально),
- *   "stockQuantity": 10 (опционально, min 0)
- * }
+ * Multipart form-data
+ * 
+ * Body fields (текстовые поля):
+ * - name: "Название" (обязательно)
+ * - description: "Описание" (опционально)
+ * - purchase_price: 100 (обязательно, положительное число)
+ * - retail_price: 200 (обязательно, положительное число)
+ * - discount_price: 150 (опционально, min 0 или null)
+ * - brand_id: 1 (обязательно)
+ * - category_id: 1 (обязательно)
+ * - supplier_id: 1 (опционально)
+ * - product_type: "Тип" (обязательно)
+ * - target_audience: "unisex" (по умолчанию unisex)
+ * - skin_type: "Тип кожи" (опционально)
+ * - weight_grams: 100 (опционально)
+ * - length_cm: 10 (опционально)
+ * - width_cm: 10 (опционально)
+ * - height_cm: 10 (опционально)
+ * - is_active: true (по умолчанию true)
+ * - is_featured: false (по умолчанию false)
+ * - is_new: true (по умолчанию true)
+ * - is_bestseller: false (по умолчанию false)
+ * - attributes: {"ingredients": "Ингредиенты", "usage": "Использование"} (опционально)
+ * - meta_title: "Meta заголовок" (опционально)
+ * - meta_description: "Meta описание" (опционально)
+ * - stockQuantity: 10 (опционально, min 0)
+ * 
+ * Files (файлы):
+ * - mainImage: файл главного изображения (опционально, 1 файл, max 5MB)
+ * - gallery[]: массив файлов для галереи (опционально, до 2 файлов, каждый max 5MB)
+ * 
+ * Формат: multipart/form-data
  */
 router.post(
   '/',
@@ -120,13 +119,25 @@ router.post(
 );
 
 /**
- * Обновить продукт
- * PUT /api/products/:id
- * Доступ: Admin
- *
- * Body: (все поля опциональны)
- * Аналогично create, но поля не обязательны
- */
+* Обновить продукт
+* PUT /api/products/:id
+* Доступ: Admin
+* Multipart form-data
+* 
+* Body: (все поля опциональны)
+* - name: "Новое название" (опционально)
+* - description: "Новое описание" (опционально)
+* - purchase_price: 120 (опционально)
+* - и т.д. (все поля как в схеме создания)
+* 
+* Files:
+* - mainImage: новый файл главного изображения (опционально, 1 файл)
+* - gallery[]: новые файлы для галереи (опционально, до 10 файлов)
+* 
+* Формат: multipart/form-data
+* 
+* Примечание: Если передаются новые файлы галереи, старая галерея полностью удаляется и заменяется новой.
+*/
 router.put(
   '/:id',
   authenticate,

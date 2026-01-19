@@ -2,6 +2,7 @@
 const Joi = require('joi');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
+const { validateImageFile } = require('../utils/imageUtils');
 
 // Схема валидации для создания продукта
 const productSchema = Joi.object({
@@ -128,19 +129,32 @@ const getProductByIdentifier = async (identifier, isAdmin = false) => {
 };
 
 // Создать новый продукт с валидацией
-const createProduct = async (data) => {
+const createProduct = async (data, mainImageFile, galleryFiles) => {
   const { error } = productSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
-  return productModel.createProduct(data);
+  
+  validateImageFile(mainImageFile);
+  if (galleryFiles && galleryFiles.length > 0) {
+      galleryFiles.forEach(file => validateImageFile(file));
+  }
+  
+  return productModel.createProduct(data, mainImageFile, galleryFiles);
 };
 
 // Обновить продукт с валидацией
-const updateProduct = async (id, data) => {
+const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
   const { error } = updateSchema.validate(data, { allowUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
-  const product = await getProductByIdentifier(id); // Проверка существования
+  
+  validateImageFile(mainImageFile);
+  if (galleryFiles && galleryFiles.length > 0) {
+      galleryFiles.forEach(file => validateImageFile(file));
+  }
+  
+  const product = await getProductByIdentifier(id);
   if (!product) throw new AppError('Продукт не найден', 404);
-  return productModel.updateProduct(id, data);
+  
+  return productModel.updateProduct(id, data, mainImageFile, galleryFiles);
 };
 
 // Удалить продукт
