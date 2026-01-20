@@ -157,6 +157,9 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
   if (data.discount_price === 0) {
       data.discount_price = null;
   }
+
+  const stockQuantity = data.stockQuantity;
+  delete data.stockQuantity;
   
   const fields = Object.keys(data).join(', ');
   const values = Object.values(data);
@@ -199,16 +202,16 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
       [mainImageUrl, JSON.stringify(galleryUrls), productId]
   );
   
-  if (data.stockQuantity !== undefined) {
-      const quantity = parseInt(data.stockQuantity, 10);
-      if (isNaN(quantity) || quantity < 0) {
-          throw new Error('Invalid stockQuantity');
-      }
-      await db.query(
-          'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-          [quantity, productId, 1]
-      );
-  }
+  if (stockQuantity !== undefined) {
+    const quantity = parseInt(stockQuantity, 10);
+    if (isNaN(quantity) || quantity < 0) {
+        throw new Error('Invalid stockQuantity');
+    }
+    await db.query(
+        'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
+        [quantity, productId, 1]
+    );
+}
   
   return getProductByIdentifier(productId, true);
 };

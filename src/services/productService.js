@@ -7,84 +7,84 @@ const { validateImageFile } = require('../utils/imageUtils');
 // Схема валидации для создания продукта
 const productSchema = Joi.object({
   name: Joi.string().required(),
-  description: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
   purchase_price: Joi.number().positive().required(),
   retail_price: Joi.number().positive().required(),
   discount_price: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().required(),
   category_id: Joi.number().integer().required(),
-  supplier_id: Joi.number().integer().optional(),
+  supplier_id: Joi.number().integer().allow(null).optional(),
   product_type: Joi.string().required(),
   target_audience: Joi.string().default('unisex'),
-  main_image_url: Joi.string().optional(),
+  main_image_url: Joi.string().allow('').optional(),
   image_urls: Joi.array().items(Joi.string()).default([]),
-  skin_type: Joi.string().max(100).optional(),
-  weight_grams: Joi.number().integer().optional(),
-  length_cm: Joi.number().integer().optional(),
-  width_cm: Joi.number().integer().optional(),
-  height_cm: Joi.number().integer().optional(),
+  skin_type: Joi.string().max(100).allow('').optional(),
+  weight_grams: Joi.number().integer().allow(null).optional(),
+  length_cm: Joi.number().integer().allow(null).optional(),
+  width_cm: Joi.number().integer().allow(null).optional(),
+  height_cm: Joi.number().integer().allow(null).optional(),
   is_active: Joi.boolean().default(true),
   is_featured: Joi.boolean().default(false),
   is_new: Joi.boolean().default(true),
   is_bestseller: Joi.boolean().default(false),
   attributes: Joi.object()
     .keys({
-      ingredients: Joi.string().optional(),
-      usage: Joi.string().optional(),
+      ingredients: Joi.string().allow('').optional(),
+      usage: Joi.string().allow('').optional(),
       variants: Joi.array()
         .items(
           Joi.object({
-            name: Joi.string(),
-            value: Joi.string(),
+            name: Joi.string().allow(''),
+            value: Joi.string().allow(''),
           })
         )
         .optional(),
     })
     .default({}),
-  meta_title: Joi.string().optional(),
-  meta_description: Joi.string().optional(),
+  meta_title: Joi.string().allow('').optional(),
+  meta_description: Joi.string().allow('').optional(),
   stockQuantity: Joi.number().integer().min(0).optional(),
 });
 
 // Схема валидации для обновления продукта
 const updateSchema = Joi.object({
-  name: Joi.string().optional(),
-  description: Joi.string().optional(),
+  name: Joi.string().allow('').optional(),
+  description: Joi.string().allow('').optional(),
   purchase_price: Joi.number().positive().optional(),
   retail_price: Joi.number().positive().optional(),
   discount_price: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().optional(),
   category_id: Joi.number().integer().optional(),
-  supplier_id: Joi.number().integer().optional(),
-  product_type: Joi.string().optional(),
-  target_audience: Joi.string().optional(),
-  main_image_url: Joi.string().optional(),
+  supplier_id: Joi.number().integer().allow(null).optional(),
+  product_type: Joi.string().allow('').optional(),
+  target_audience: Joi.string().allow('').optional(),
+  main_image_url: Joi.string().allow('').optional(),
   image_urls: Joi.array().items(Joi.string()).optional(),
-  skin_type: Joi.string().max(100).optional(),
-  weight_grams: Joi.number().integer().optional(),
-  length_cm: Joi.number().integer().optional(),
-  width_cm: Joi.number().integer().optional(),
-  height_cm: Joi.number().integer().optional(),
+  skin_type: Joi.string().max(100).allow('').optional(),
+  weight_grams: Joi.number().integer().allow(null).optional(),
+  length_cm: Joi.number().integer().allow(null).optional(),
+  width_cm: Joi.number().integer().allow(null).optional(),
+  height_cm: Joi.number().integer().allow(null).optional(),
   is_active: Joi.boolean().optional(),
   is_featured: Joi.boolean().optional(),
   is_new: Joi.boolean().optional(),
   is_bestseller: Joi.boolean().optional(),
   attributes: Joi.object()
     .keys({
-      ingredients: Joi.string().optional(),
-      usage: Joi.string().optional(),
+      ingredients: Joi.string().allow('').optional(),
+      usage: Joi.string().allow('').optional(),
       variants: Joi.array()
         .items(
           Joi.object({
-            name: Joi.string(),
-            value: Joi.string(),
+            name: Joi.string().allow(''),
+            value: Joi.string().allow(''),
           })
         )
         .optional(),
     })
     .optional(),
-  meta_title: Joi.string().optional(),
-  meta_description: Joi.string().optional(),
+  meta_title: Joi.string().allow('').optional(),
+  meta_description: Joi.string().allow('').optional(),
   stockQuantity: Joi.number().integer().min(0).optional(),
 });
 

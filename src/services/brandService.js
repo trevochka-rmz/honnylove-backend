@@ -8,28 +8,28 @@ const { validateImageFile } = require('../utils/imageUtils');
 // Схема валидации для создания бренда
 const brandSchema = Joi.object({
   name: Joi.string().required(),
-  description: Joi.string().optional(),
-  website: Joi.string().uri().optional(),
-  logo_url: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
+  website: Joi.string().uri().allow('').optional(),
+  logo_url: Joi.string().allow('').optional(),
   is_active: Joi.boolean().default(true),
-  full_description: Joi.string().optional(),
-  country: Joi.string().default('Южная Корея'),
-  founded: Joi.string().optional(),
-  philosophy: Joi.string().optional(),
+  full_description: Joi.string().allow('').optional(),
+  country: Joi.string().allow('').default('Южная Корея'),
+  founded: Joi.string().allow('').optional(),
+  philosophy: Joi.string().allow('').optional(),
   highlights: Joi.array().items(Joi.string()).default([]),
 });
 
 // Схема валидации для обновления бренда (все поля опциональные)
 const updateSchema = Joi.object({
   name: Joi.string().optional(),
-  description: Joi.string().optional(),
-  website: Joi.string().uri().optional(),
-  logo_url: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
+  website: Joi.string().uri().allow('').optional(),
+  logo_url: Joi.string().allow('').optional(),
   is_active: Joi.boolean().optional(),
-  full_description: Joi.string().optional(),
-  country: Joi.string().optional(),
-  founded: Joi.string().optional(),
-  philosophy: Joi.string().optional(),
+  full_description: Joi.string().allow('').optional(),
+  country: Joi.string().allow('').optional(),
+  founded: Joi.string().allow('').optional(),
+  philosophy: Joi.string().allow('').optional(),
   highlights: Joi.array().items(Joi.string()).optional(),
 });
 

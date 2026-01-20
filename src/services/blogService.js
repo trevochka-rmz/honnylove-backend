@@ -21,25 +21,25 @@ const blogSchema = Joi.object({
   title: Joi.string().required().messages({ 'any.required': 'Поле "title" обязательно' }),
   excerpt: Joi.string().required().messages({ 'any.required': 'Поле "excerpt" обязательно' }),
   content: Joi.string().required().messages({ 'any.required': 'Поле "content" обязательно' }),
-  image: Joi.string().uri().optional(),
+  image: Joi.string().uri().allow('').optional(),
   category: Joi.string().required().messages({ 'any.required': 'Поле "category" обязательно' }),
   author: Joi.string().required().messages({ 'any.required': 'Поле "author" обязательно' }),
-  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).allow('').optional(),
   read_time: Joi.number().integer().min(1).required().messages({ 'any.required': 'Поле "read_time" обязательно' }),
   tags: Joi.array().items(Joi.string().valid(...ALLOWED_TAGS)).default([])
 });
 
 // Схема валидации для обновления поста блога (все поля опциональные)
 const updateSchema = Joi.object({
-  title: Joi.string().optional(),
-  excerpt: Joi.string().optional(),
-  content: Joi.string().optional(),
-  image: Joi.string().uri().optional(),
-  category: Joi.string().optional(),
-  author: Joi.string().optional(),
-  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  title: Joi.string().allow('').optional(),
+  excerpt: Joi.string().allow('').optional(),
+  content: Joi.string().allow('').optional(),
+  image: Joi.string().uri().allow('').optional(),
+  category: Joi.string().allow('').optional(),
+  author: Joi.string().allow('').optional(),
+  date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).allow('').optional(),
   read_time: Joi.number().integer().min(1).optional(),
-  tags: Joi.array().items(Joi.string().valid(...ALLOWED_TAGS)).optional().default([]),  
+  tags: Joi.array().items(Joi.string().valid(...ALLOWED_TAGS)).optional()
 });
 
 // Схема валидации для запросов списка постов

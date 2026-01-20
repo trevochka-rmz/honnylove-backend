@@ -8,22 +8,22 @@ const { validateImageFile } = require('../utils/imageUtils');
 const categorySchema = Joi.object({
   name: Joi.string().required(),
   parent_id: Joi.number().integer().allow(null).optional(),
-  description: Joi.string().optional(),
-  slug: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
+  slug: Joi.string().allow('').optional(),
   is_active: Joi.boolean().default(true),
   display_order: Joi.number().integer().default(0),
-  image_url: Joi.string().optional(),
+  image_url: Joi.string().allow('').optional(),
 });
 
 // Схема для обновления (все поля опциональные)
 const updateSchema = Joi.object({
-  name: Joi.string().optional(),
+  name: Joi.string().allow('').optional(),
   parent_id: Joi.number().integer().allow(null).optional(),
-  description: Joi.string().optional(),
-  slug: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
+  slug: Joi.string().allow('').optional(),
   is_active: Joi.boolean().optional(),
   display_order: Joi.number().integer().optional(),
-  image_url: Joi.string().optional(),
+  image_url: Joi.string().allow('').optional(),
 });
 
 // Схема для параметров

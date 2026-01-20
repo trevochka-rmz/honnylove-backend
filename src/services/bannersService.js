@@ -6,24 +6,25 @@ const { validateImageFile } = require('../utils/imageUtils');
 
 // Схема валидации для создания баннера
 const bannerSchema = Joi.object({
-  preheader: Joi.string().optional(),
+  preheader: Joi.string().allow('').optional(),
   title: Joi.string().required(),
-  subtitle: Joi.string().optional(),
-  image_url: Joi.string().optional(),
-  button_text: Joi.string().optional(),
-  button_link: Joi.string().optional(),
+  subtitle: Joi.string().allow('').optional(),
+  image_url: Joi.string().allow('').optional(),
+  button_text: Joi.string().allow('').optional(),
+  button_link: Joi.string().allow('').optional(),
   display_order: Joi.number().integer().default(0),
   is_active: Joi.boolean().default(true),
 });
 
+
 // Схема валидации для обновления баннера (все поля опциональные)
 const updateSchema = Joi.object({
-  preheader: Joi.string().optional(),
-  title: Joi.string().optional(),
-  subtitle: Joi.string().optional(),
-  image_url: Joi.string().optional(),
-  button_text: Joi.string().optional(),
-  button_link: Joi.string().optional(),
+  preheader: Joi.string().allow('').optional(),
+  title: Joi.string().allow('').optional(),
+  subtitle: Joi.string().allow('').optional(),
+  image_url: Joi.string().allow('').optional(),
+  button_text: Joi.string().allow('').optional(),
+  button_link: Joi.string().allow('').optional(),
   display_order: Joi.number().integer().optional(),
   is_active: Joi.boolean().optional(),
 });
