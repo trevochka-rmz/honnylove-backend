@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
+const productExportController = require('../controllers/productExportController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 // ПУБЛИЧНЫЕ МАРШРУТЫ
@@ -156,5 +157,36 @@ router.delete(
   requireRole(['admin']),
   productController.deleteProduct
 );
+
+
+/**
+ * Экспорт продуктов в PDF
+ * GET /api/products/export/pdf?brandId=1&categoryId=2&search=query
+ * Доступ: Admin
+ * 
+ * Query параметры:
+ * - brandId: фильтр по бренду (опционально)
+ * - categoryId: фильтр по категории (опционально)
+ * - search: поиск по названию (опционально)
+ */
+router.get(
+  '/export/pdf',
+  authenticate,
+  requireRole(['admin']),
+  productExportController.exportProductsToPDF
+);
+
+/**
+ * Экспорт продуктов в CSV
+ * GET /api/products/export/csv?brandId=1&categoryId=2&search=query
+ * Доступ: Admin
+ */
+router.get(
+  '/export/csv',
+  authenticate,
+  requireRole(['admin']),
+  productExportController.exportProductsToCSV
+);
+
 
 module.exports = router;

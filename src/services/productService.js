@@ -69,20 +69,23 @@ const updateSchema = Joi.object({
   is_featured: Joi.boolean().optional(),
   is_new: Joi.boolean().optional(),
   is_bestseller: Joi.boolean().optional(),
-  attributes: Joi.object()
-    .keys({
-      ingredients: Joi.string().allow('').optional(),
-      usage: Joi.string().allow('').optional(),
-      variants: Joi.array()
-        .items(
-          Joi.object({
-            name: Joi.string().allow(''),
-            value: Joi.string().allow(''),
-          })
-        )
-        .optional(),
-    })
-    .optional(),
+  attributes: Joi.alternatives().try(
+    Joi.object()
+      .keys({
+        ingredients: Joi.string().allow('').optional(),
+        usage: Joi.string().allow('').optional(),
+        variants: Joi.array()
+          .items(
+            Joi.object({
+              name: Joi.string().allow(''),
+              value: Joi.string().allow(''),
+            })
+          )
+          .optional(),
+      })
+      .optional(),
+    Joi.string().allow('') 
+  ).optional(),
   meta_title: Joi.string().allow('').optional(),
   meta_description: Joi.string().allow('').optional(),
   stockQuantity: Joi.number().integer().min(0).optional(),
@@ -133,6 +136,14 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
   const { error } = productSchema.validate(data);
   if (error) throw new AppError(error.details[0].message, 400);
   
+  if (data.attributes && typeof data.attributes === 'string') {
+    try {
+      data.attributes = JSON.parse(data.attributes);
+    } catch (error) {
+      data.attributes = {};
+    }
+  }
+
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
       galleryFiles.forEach(file => validateImageFile(file));
@@ -146,6 +157,14 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
   const { error } = updateSchema.validate(data, { allowUnknown: true });
   if (error) throw new AppError(error.details[0].message, 400);
   
+  if (data.attributes && typeof data.attributes === 'string') {
+    try {
+      data.attributes = JSON.parse(data.attributes);
+    } catch (error) {
+      data.attributes = {};
+    }
+  }
+
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
       galleryFiles.forEach(file => validateImageFile(file));
