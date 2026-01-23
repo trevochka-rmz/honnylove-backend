@@ -27,6 +27,18 @@ router.post('/', cartController.addToCart);
 router.get('/', cartController.getCart);
 
 /**
+ * Получить выбранные товары из корзины
+ * POST /api/cart/selected
+ * Доступ: Customer
+ * 
+ * Body:
+ * {
+ *   "selected_items": [1, 2, 3] // ID товаров в корзине (cart_items.id)
+ * }
+ */
+router.post('/selected', cartController.getSelectedCartItems);
+
+/**
  * Обновить количество товара в корзине
  * PUT /api/cart/:itemId
  * Доступ: Customer

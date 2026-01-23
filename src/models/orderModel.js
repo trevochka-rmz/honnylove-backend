@@ -629,10 +629,81 @@ const deleteOrder = async (client, orderId) => {
   return res.rows[0];
 };
 
+// Получить выбранные товары из корзины пользователя
+const getSelectedCartItemsWithDetails = async (client, userId, selectedItemIds) => {
+  if (!selectedItemIds || selectedItemIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
+  
+  const res = await client.query(`
+    SELECT 
+      ci.id as cart_item_id,
+      ci.user_id,
+      ci.product_id,
+      ci.quantity as cart_quantity,
+      ci.created_at as added_to_cart_at,
+      
+      pp.id,
+      pp.name,
+      pp.sku,
+      pp.description,
+      pp.retail_price,
+      pp.discount_price,
+      pp.main_image_url,
+      pp.is_active,
+      
+      pb.name as brand_name,
+      pc.name as category_name,
+      
+      COALESCE(pp.discount_price, pp.retail_price) as final_price,
+      
+      (ci.quantity * COALESCE(pp.discount_price, pp.retail_price)) as line_total,
+      
+      COALESCE(
+        (SELECT SUM(quantity) 
+         FROM product_inventory pi 
+         JOIN product_locations pl ON pi.location_id = pl.id
+         WHERE pi.product_id = pp.id AND pl.is_active = true),
+        0
+      ) as available_stock
+      
+    FROM cart_items ci
+    INNER JOIN product_products pp ON ci.product_id = pp.id
+    LEFT JOIN product_brands pb ON pp.brand_id = pb.id
+    LEFT JOIN product_categories pc ON pp.category_id = pc.id
+    WHERE ci.user_id = $1 
+      AND ci.id IN (${placeholders})
+      AND pp.is_active = true
+    ORDER BY ci.created_at DESC
+  `, [userId, ...selectedItemIds]);
+  
+  return res.rows;
+};
+
+// Удалить выбранные товары из корзины
+const removeSelectedCartItems = async (client, userId, selectedItemIds) => {
+  if (!selectedItemIds || selectedItemIds.length === 0) {
+    return;
+  }
+
+  const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
+  
+  await client.query(`
+    DELETE FROM cart_items 
+    WHERE user_id = $1 
+      AND id IN (${placeholders})
+  `, [userId, ...selectedItemIds]);
+};
+
 module.exports = {
   // Корзина
   getCartItemsWithDetails,
   clearUserCart,
+  getSelectedCartItemsWithDetails,
+  removeSelectedCartItems,
+
   
   // Создание заказа
   createOrder,

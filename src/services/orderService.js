@@ -4,7 +4,7 @@ const db = require('../config/db');
 const orderModel = require('../models/orderModel');
 const AppError = require('../utils/errorUtils');
 
-// Схема создание заказа от Админа
+// Схема создания заказа от Админа
 const createAdminOrderSchema = Joi.object({
   user_id: Joi.number().integer().positive().required()
     .messages({
@@ -46,26 +46,33 @@ const checkoutSchema = Joi.object({
   shipping_address: Joi.string().min(10).max(500).required()
     .messages({
       'string.empty': 'Укажите адрес доставки',
-      'string.min': 'Адрес должен содержать минимум 10 символов',
-      'string.max': 'Адрес не должен превышать 500 символов'
+      'any.required': 'Адрес доставки обязателен'
     }),
   payment_method: Joi.string()
-    .valid('card', 'cash', 'online', 'bank_transfer')
+    .valid('card', 'cash', 'online', 'sbp')
     .required()
     .messages({
-      'any.only': 'Неверный способ оплаты. Доступны: card, cash, online, bank_transfer',
+      'any.only': 'Неверный способ оплаты. Доступны: card, cash, online, sbp',
       'any.required': 'Укажите способ оплаты'
     }),
   notes: Joi.string().max(1000).optional().allow(''),
   shipping_cost: Joi.number().min(0).default(0),
   tax_amount: Joi.number().min(0).default(0),
   discount_amount: Joi.number().min(0).default(0),
+  selected_items: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1)
+    .required()
+    .messages({
+      'array.min': 'Выберите хотя бы один товар для оформления',
+      'any.required': 'Не указаны товары для оформления'
+    })
 });
 
 // Схема для обновления заказа
 const updateOrderSchema = Joi.object({
   shipping_address: Joi.string().min(10).max(500).optional(),
-  payment_method: Joi.string().valid('card', 'cash', 'online', 'bank_transfer').optional(),
+  payment_method: Joi.string().valid('card', 'cash', 'online', 'sbp').optional(),
   shipping_cost: Joi.number().min(0).optional(),
   tax_amount: Joi.number().min(0).optional(),
   discount_amount: Joi.number().min(0).optional(),
@@ -78,6 +85,7 @@ const addOrderItemSchema = Joi.object({
   product_id: Joi.number().integer().positive().required(),
   quantity: Joi.number().integer().min(1).required(),
 });
+
 
 //ДОСТУПНЫЕ СТАТУСЫ ЗАКАЗОВ
 const ORDER_STATUSES = [
@@ -110,16 +118,18 @@ const createOrder = async (userId, orderData) => {
   try {
     await client.query('BEGIN');
     
-    // 2. Получаем товары из корзины
-    const cartItems = await orderModel.getCartItemsWithDetails(client, userId);
+    // Получаем ТОЛЬКО выбранные товары из корзины
+    const cartItems = await orderModel.getSelectedCartItemsWithDetails(
+      client, 
+      userId, 
+      value.selected_items
+    );
     
     if (!cartItems || cartItems.length === 0) {
-      throw new AppError('Корзина пуста', 400);
+      throw new AppError('Выбранные товары не найдены в корзине', 400);
     }
     
-    // 3. Проверяем активность товаров и наличие на складе
-    const inventoryChecks = [];
-    
+    // Проверяем активность товаров и наличие на складе
     for (const item of cartItems) {
       if (!item.is_active) {
         throw new AppError(
@@ -141,11 +151,9 @@ const createOrder = async (userId, orderData) => {
           400
         );
       }
-      
-      inventoryChecks.push({ item, inventoryCheck });
     }
     
-    // 4. Рассчитываем итоговую сумму
+    // Рассчитываем итоговую сумму
     const subtotal = cartItems.reduce((sum, item) => {
       return sum + (item.final_price * item.cart_quantity);
     }, 0);
@@ -160,7 +168,7 @@ const createOrder = async (userId, orderData) => {
       throw new AppError('Итоговая сумма заказа не может быть отрицательной', 400);
     }
     
-    // 5. Создаем заказ
+    // Создаем заказ
     const newOrder = await orderModel.createOrder(client, {
       user_id: userId,
       total_amount,
@@ -172,8 +180,8 @@ const createOrder = async (userId, orderData) => {
       notes: value.notes || ''
     });
     
-    // 6. Добавляем товары в заказ и списываем со склада
-    for (const { item } of inventoryChecks) {
+    // Добавляем товары в заказ и списываем со склада
+    for (const item of cartItems) {
       await orderModel.addOrderItem(client, {
         order_id: newOrder.id,
         product_id: item.product_id,
@@ -189,15 +197,15 @@ const createOrder = async (userId, orderData) => {
       );
     }
     
-    // 7. Добавляем запись в историю статусов
+    // Добавляем запись в историю статусов
     await orderModel.addStatusHistory(client, newOrder.id, 'pending', userId);
     
-    // 8. Очищаем корзину
-    await orderModel.clearUserCart(client, userId);
+    // ✅ Удаляем ТОЛЬКО выбранные товары из корзины
+    await orderModel.removeSelectedCartItems(client, userId, value.selected_items);
     
     await client.query('COMMIT');
     
-    // 9. Получаем полную информацию о созданном заказе
+    // Получаем полную информацию о созданном заказе
     const fullOrder = await orderModel.getOrderById(newOrder.id);
     
     return {
@@ -205,7 +213,9 @@ const createOrder = async (userId, orderData) => {
       message: 'Заказ успешно оформлен',
       data: {
         order: fullOrder,
-        order_number: `ORD-${String(newOrder.id).padStart(6, '0')}`
+        order_number: `ORD-${String(newOrder.id).padStart(6, '0')}`,
+        items_count: cartItems.length,
+        needs_payment: ['card', 'online', 'sbp'].includes(value.payment_method)
       }
     };
     
@@ -225,6 +235,70 @@ const createOrder = async (userId, orderData) => {
     client.release();
   }
 };
+
+/**
+ * ✅ НОВЫЙ МЕТОД: Оформить заказ с немедленной оплатой
+ * Для способов оплаты: card, online, sbp
+ */
+const createOrderWithPayment = async (userId, orderData) => {
+  try {
+    // 1. Проверяем способ оплаты
+    if (!['card', 'online', 'sbp'].includes(orderData.payment_method)) {
+      throw new AppError(
+        'Этот метод только для онлайн-оплаты (card, online, sbp). ' +
+        'Для оплаты наличными используйте обычное оформление заказа.',
+        400
+      );
+    }
+    
+    // 2. Создаем заказ
+    const orderResult = await createOrder(userId, orderData);
+    
+    if (!orderResult.success) {
+      return orderResult;
+    }
+    
+    const orderId = orderResult.data.order.id;
+    const orderAmount = orderResult.data.order.total_amount;
+    
+    // 3. Создаем платеж через paymentService
+    const paymentService = require('./paymentService');
+    
+    const payment = await paymentService.createYookassaPayment({
+      order_id: orderId,
+      amount: orderAmount,
+      description: `Оплата заказа №${orderId}`,
+      metadata: {
+        user_id: userId,
+        order_number: orderResult.data.order_number
+      }
+    });
+    
+    return {
+      success: true,
+      message: 'Заказ оформлен. Перейдите к оплате.',
+      data: {
+        order: orderResult.data.order,
+        order_number: orderResult.data.order_number,
+        payment: {
+          confirmation_url: payment.confirmation_url,
+          payment_id: payment.payment_id,
+          yookassa_payment_id: payment.yookassa_payment_id,
+          status: payment.status,
+          amount: payment.amount
+        }
+      }
+    };
+    
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    console.error('Ошибка при создании заказа с оплатой:', err);
+    throw new AppError('Не удалось оформить заказ с оплатой: ' + err.message, 500);
+  }
+};
+
 
 // Создать заказ от имени администратора
 const createAdminOrder = async (adminUserId, orderData) => {
@@ -884,11 +958,13 @@ const deleteOrder = async (orderId, userId, role) => {
   }
 };
 
+
 module.exports = {
   // Создание
   createOrder,
   createAdminOrder,
-  
+  createOrderWithPayment,
+
   // Получение
   getUserOrders,
   getAllOrders,

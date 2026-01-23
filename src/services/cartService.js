@@ -1,4 +1,4 @@
-// src/services/cartService.js
+// src/services/cartService.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 const Joi = require('joi');
 const cartModel = require('../models/cartModel');
 const productService = require('./productService');
@@ -17,15 +17,18 @@ const addToCart = async (userId, data) => {
     throw new AppError(error.details[0].message, 400);
   }
   const { product_id, quantity } = data;
+  
   // Проверяем существование товара
   const product = await productService.getProductByIdentifier(product_id);
   if (!product) {
     throw new AppError('Товар не найден', 404);
   }
+  
   // Проверяем активность товара
   if (!product.is_active && product.is_active !== undefined) {
     throw new AppError('Товар временно недоступен', 400);
   }
+  
   // Проверяем, есть ли уже товар в корзине
   const existingItem = await cartModel.getCartItem(userId, product_id);
   if (existingItem) {
@@ -39,6 +42,7 @@ const addToCart = async (userId, data) => {
     }
     return cartModel.updateCartItem(userId, product_id, quantity);
   }
+  
   // Добавляем новый товар
   return cartModel.addCartItem({
     user_id: userId,
@@ -52,26 +56,28 @@ const getCart = async (userId) => {
   const items = await cartModel.getCartByUser(userId);
   let total = 0;
   let itemsTotal = 0;
+  
   for (const item of items) {
     // Получаем информацию о продукте
     const product = await productService.getProductByIdentifier(item.product_id);
     if (product) {
       item.product = product;
+      
       // Проверяем наличие на складе через инвентарь
       const inventoryService = require('./inventoryService');
       let availableStock = 0;
       try {
-        availableStock = await inventoryService.getTotalStock(
-          item.product_id
-        );
+        availableStock = await inventoryService.getTotalStock(item.product_id);
       } catch (error) {
         availableStock = 0;
       }
+      
       // Добавляем информацию о наличии
       item.inStock = availableStock > 0;
       item.availableQuantity = availableStock;
       item.isLowStock = availableStock > 0 && availableStock < 5; 
       item.outOfStock = availableStock === 0;
+      
       // Используем discountPrice если есть, иначе retailPrice
       const discountPrice = product.discountPrice
         ? parseFloat(product.discountPrice)
@@ -80,6 +86,7 @@ const getCart = async (userId) => {
         ? parseFloat(product.retailPrice)
         : parseFloat(product.price) || 0;
       const price = discountPrice || retailPrice;
+      
       // Рассчитываем subtotal
       item.unitPrice = price;
       item.subtotal = price * item.quantity;
@@ -87,6 +94,7 @@ const getCart = async (userId) => {
       itemsTotal += item.quantity;
     }
   }
+  
   return {
     items: items,
     summary: {
@@ -110,6 +118,7 @@ const updateCartItem = async (userId, itemId, quantity) => {
       400
     );
   }
+  
   const item = await cartModel.getCartItemById(itemId);
   if (!item || item.user_id !== userId) {
     throw new AppError(
@@ -117,6 +126,7 @@ const updateCartItem = async (userId, itemId, quantity) => {
       404
     );
   }
+  
   return cartModel.updateCartItemQuantity(itemId, quantity);
 };
 
@@ -137,10 +147,79 @@ const clearCart = async (userId) => {
   await cartModel.clearCart(userId);
 };
 
+// ✅ НОВЫЙ МЕТОД: Получить выбранные товары для предпросмотра перед оформлением
+const getSelectedCartItems = async (userId, selectedItemIds) => {
+  if (!selectedItemIds || !Array.isArray(selectedItemIds) || selectedItemIds.length === 0) {
+    throw new AppError('Укажите ID товаров для оформления', 400);
+  }
+
+  // Преобразуем ID в числа
+  const itemIds = selectedItemIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+  
+  if (itemIds.length === 0) {
+    throw new AppError('Некорректные ID товаров', 400);
+  }
+
+  const items = await cartModel.getCartByUser(userId);
+  
+  // Фильтруем только выбранные товары
+  const selectedItems = items.filter(item => itemIds.includes(item.id));
+  
+  if (selectedItems.length === 0) {
+    throw new AppError('Выбранные товары не найдены в корзине', 404);
+  }
+
+  // Добавляем информацию о товарах (как в getCart)
+  let total = 0;
+  let itemsTotal = 0;
+  
+  for (const item of selectedItems) {
+    const product = await productService.getProductByIdentifier(item.product_id);
+    if (product) {
+      item.product = product;
+      
+      // Проверяем наличие на складе
+      const inventoryService = require('./inventoryService');
+      let availableStock = 0;
+      try {
+        availableStock = await inventoryService.getTotalStock(item.product_id);
+      } catch (error) {
+        availableStock = 0;
+      }
+      
+      item.inStock = availableStock > 0;
+      item.availableQuantity = availableStock;
+      item.isLowStock = availableStock > 0 && availableStock < 5;
+      item.outOfStock = availableStock === 0;
+      
+      const discountPrice = product.discountPrice ? parseFloat(product.discountPrice) : null;
+      const retailPrice = product.retailPrice ? parseFloat(product.retailPrice) : parseFloat(product.price) || 0;
+      const price = discountPrice || retailPrice;
+      
+      item.unitPrice = price;
+      item.subtotal = price * item.quantity;
+      total += item.subtotal;
+      itemsTotal += item.quantity;
+    }
+  }
+
+  return {
+    items: selectedItems,
+    summary: {
+      itemsTotal: itemsTotal,
+      subtotal: parseFloat(total.toFixed(2)),
+      shipping: 0,
+      total: parseFloat(total.toFixed(2))
+    },
+    hasItems: selectedItems.length > 0
+  };
+};
+
 module.exports = {
   addToCart,
   getCart,
   updateCartItem,
   removeFromCart,
   clearCart,
+  getSelectedCartItems
 };

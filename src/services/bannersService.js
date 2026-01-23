@@ -16,7 +16,6 @@ const bannerSchema = Joi.object({
   is_active: Joi.boolean().default(true),
 });
 
-
 // Схема валидации для обновления баннера (все поля опциональные)
 const updateSchema = Joi.object({
   preheader: Joi.string().allow('').optional(),

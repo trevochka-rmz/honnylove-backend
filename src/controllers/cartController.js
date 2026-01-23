@@ -98,10 +98,43 @@ const clearCart = async (req, res, next) => {
   }
 };
 
+// Получить выбранные товары из корзины
+const getSelectedCartItems = async (req, res, next) => {
+  try {
+    const { selected_items } = req.body; 
+    
+    if (!selected_items || !Array.isArray(selected_items)) {
+      return res.status(400).json({ 
+        error: 'Укажите массив ID товаров (selected_items)' 
+      });
+    }
+    
+    const cart = await cartService.getSelectedCartItems(
+      req.user.id, 
+      selected_items
+    );
+    
+    cart.items = cart.items.map((item) => ({
+      ...item,
+      product: item.product ? addFullImageUrls(item.product, req) : null,
+    }));
+    
+    res.json({
+      success: true,
+      data: cart,
+      selected_count: selected_items.length
+    });
+    
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   addToCart,
   getCart,
   updateCartItem,
   removeFromCart,
   clearCart,
+  getSelectedCartItems
 };
