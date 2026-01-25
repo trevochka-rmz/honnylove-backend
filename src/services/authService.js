@@ -13,7 +13,7 @@ const AppError = require('../utils/errorUtils');
 const userSchema = Joi.object({
   username: Joi.string().min(3).max(255).required(),
   email: Joi.string().email().required(),
-  password: Joi.string().min(8).required(),
+  password: Joi.string().min(6).required(),
   role: Joi.string()
     .valid('customer', 'manager', 'admin')
     .default('customer'),

@@ -1,177 +1,198 @@
 // src/controllers/productExportController.js
-const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
-const { generateProductsPDF } = require('../services/productExportService');
+const PDFDocument = require('pdfkit');
+const { generateExportData } = require('../services/productExportService');
 
 /**
- * Экспорт продуктов в PDF
+ * Экспорт продуктов в PDF (ручная таблица без pdfkit-table)
  */
 const exportProductsToPDF = async (req, res, next) => {
   try {
-    const products = await generateProductsPDF(req.query);
-    
-    // Создаем PDF документ
+    const products = await generateExportData(req.query);
+
     const doc = new PDFDocument({
       size: 'A4',
-      margin: 50,
+      margin: 30, // Уменьшили margins для больше места
       layout: 'landscape'
     });
-    
-    // Регистрируем шрифты для кириллицы
-    const fontPath = path.join(__dirname, '../../fonts');
-    
-    // Если шрифты есть - используем их, иначе Times-Roman
-    let fontRegular = 'Times-Roman';
-    let fontBold = 'Times-Bold';
-    
-    try {
-      if (fs.existsSync(path.join(fontPath, 'NotoSans-Regular.ttf'))) {
-        fontRegular = path.join(fontPath, 'NotoSans-Regular.ttf');
-        fontBold = path.join(fontPath, 'NotoSans-Bold.ttf');
-        doc.registerFont('NotoSans', fontRegular);
-        doc.registerFont('NotoSans-Bold', fontBold);
-        fontRegular = 'NotoSans';
-        fontBold = 'NotoSans-Bold';
-      }
-    } catch (error) {
-      console.log('Шрифты Noto не найдены, используем Times-Roman');
+
+    // Шрифты
+    let fontRegular = 'Helvetica';
+    let fontBold = 'Helvetica-Bold';
+    const regularPath = path.join(__dirname, '../fonts/PTSerif-Regular.ttf');
+    const boldPath = path.join(__dirname, '../fonts/PTSerif-Bold.ttf');
+    if (fs.existsSync(regularPath) && fs.existsSync(boldPath)) {
+      doc.registerFont('FontRegular', fs.readFileSync(regularPath));
+      doc.registerFont('FontBold', fs.readFileSync(boldPath));
+      fontRegular = 'FontRegular';
+      fontBold = 'FontBold';
+    } else {
+      console.warn('Шрифты PT Serif не найдены. Используем Helvetica.');
     }
-    
-    // Устанавливаем заголовки
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="products-${new Date().toISOString().split('T')[0]}.pdf"`);
-    
     doc.pipe(res);
-    
-    // Заголовок документа
-    doc.font(fontBold)
-       .fontSize(20)
-       .text('ЭКСПОРТ ПРОДУКТОВ', { align: 'center' })
-       .moveDown();
-    
-    doc.font(fontRegular)
-       .fontSize(10)
-       .text(`Дата экспорта: ${new Date().toLocaleDateString('ru-RU')}`, { align: 'center' })
-       .text(`Всего продуктов: ${products.length}`, { align: 'center' })
-       .moveDown(2);
-    
-    // Создаем таблицу
-    const tableTop = 150;
-    const tableLeft = 30;
-    const rowHeight = 30;
-    const colWidths = [30, 80, 100, 100, 80, 80, 120, 50];
-    
-    // Заголовки таблицы
-    const headers = ['№', 'Фото', 'Название', 'Бренд', 'Категория', 'Цена', 'Статус', 'Кол-во'];
-    
-    // Рисуем заголовки
-    doc.font(fontBold).fontSize(10);
-    let x = tableLeft;
-    headers.forEach((header, i) => {
-      doc.text(header, x, tableTop, {
-        width: colWidths[i],
-        align: i === 0 ? 'center' : 'left'
+
+    // Заголовок слева сверху (только дата и количество, без "ЭКСПОРТ ПРОДУКТОВ")
+    doc.font(fontRegular).fontSize(8) // Маленький шрифт для заголовка
+      .text(`Дата экспорта: ${new Date().toLocaleDateString('ru-RU')}`, doc.page.margins.left, doc.page.margins.top)
+      .text(`Всего продуктов: ${products.length}`, doc.page.margins.left, doc.page.margins.top + 10);
+
+    // Параметры таблицы (начинаем ниже заголовка)
+    let tableTop = doc.page.margins.top + 30; // Ниже заголовка
+    const cellPadding = 3; // Меньше padding
+    const fontSize = 8; // Меньше шрифт для больше строк
+    const baseRowHeight = fontSize * 1.2 + cellPadding * 2; // Оптимизированная высота
+    const pageHeight = doc.page.height - doc.page.margins.bottom;
+    let columnWidths = [25, 200, 100, 120, 80, 50]; // Увеличили для имени/категории, цена без "розничная"
+    let headers = ['№', 'Название', 'Бренд', 'Категория', 'Цена', 'Кол-во'];
+
+    if (products.length > 0 && products[0].showStatus) {
+      columnWidths = [25, 180, 90, 110, 80, 100, 50]; // С статусом
+      headers = ['№', 'Название', 'Бренд', 'Категория', 'Цена', 'Статус', 'Кол-во'];
+    }
+
+    // Общая ширина таблицы (для закрытия)
+    const tableWidth = columnWidths.reduce((a, b) => a + b, 0);
+
+    // Функция для рисования горизонтальной линии
+    const drawHorizontalLine = (y) => {
+      doc.moveTo(doc.page.margins.left, y)
+         .lineTo(doc.page.margins.left + tableWidth, y) // Только ширина таблицы
+         .stroke();
+    };
+
+    // Функция для рисования вертикальных линий на текущей странице
+    const drawVerticalLines = (yStart, yEnd) => {
+      let x = doc.page.margins.left;
+      columnWidths.forEach(width => {
+        doc.moveTo(x, yStart).lineTo(x, yEnd).stroke();
+        x += width;
       });
-      x += colWidths[i];
+    };
+
+    // Рисуем заголовок таблицы
+    let currentY = tableTop;
+    doc.font(fontBold).fontSize(fontSize);
+    let xPos = doc.page.margins.left;
+    headers.forEach((header, colIndex) => {
+      const priceColumnIndex = headers.indexOf('Цена');
+      doc.text(header, xPos + cellPadding, currentY + cellPadding, {
+        width: columnWidths[colIndex] - cellPadding * 2,
+        align: colIndex === 0 || colIndex === headers.length - 1 ? 'center' : colIndex === priceColumnIndex ? 'right' : 'left'
+      });
+      xPos += columnWidths[colIndex];
     });
-    
-    // Горизонтальная линия под заголовками
-    doc.moveTo(tableLeft, tableTop + 20)
-       .lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), tableTop + 20)
-       .stroke();
-    
-    // Данные таблицы
-    doc.font(fontRegular).fontSize(9);
-    let y = tableTop + 30;
-    
+    const headerBottom = currentY + baseRowHeight;
+    drawHorizontalLine(tableTop);
+    drawHorizontalLine(headerBottom);
+    drawVerticalLines(tableTop, headerBottom);
+    currentY = headerBottom;
+
+    // Рисуем строки данных
+    doc.font(fontRegular).fontSize(fontSize);
     products.forEach((product, index) => {
+      // Проверяем, нужно ли добавить новую страницу
+      let maxRowHeight = baseRowHeight;
       const rowData = [
         (index + 1).toString(),
-        '', // Фото - пропускаем в PDF
         product.name,
         product.brand,
         product.category,
         product.priceDisplay,
-        product.status,
-        product.stock.toString()
       ];
-      
-      let x = tableLeft;
-      rowData.forEach((cell, i) => {
-        doc.text(cell || '', x, y, {
-          width: colWidths[i],
-          align: i === 0 ? 'center' : 'left'
-        });
-        x += colWidths[i];
+      if (product.showStatus) rowData.push(product.status);
+      rowData.push(product.stock.toString());
+
+      // Рассчитываем высоту заранее, чтобы проверить overflow
+      xPos = doc.page.margins.left;
+      rowData.forEach((cell, colIndex) => {
+        const textHeight = doc.heightOfString(cell, {
+          width: columnWidths[colIndex] - cellPadding * 2
+        }) + cellPadding * 2;
+        if (textHeight > maxRowHeight) maxRowHeight = textHeight;
       });
-      
-      // Горизонтальная линия между строками
-      doc.moveTo(tableLeft, y + rowHeight - 10)
-         .lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), y + rowHeight - 10)
-         .strokeColor('#cccccc')
-         .stroke();
-      
-      y += rowHeight;
-      
-      // Если страница заполнена, создаем новую
-      if (y > 700) {
+
+      if (currentY + maxRowHeight > pageHeight) {
+        drawVerticalLines(tableTop, currentY); // Закрываем вертикали на текущей странице
         doc.addPage();
-        y = 50;
-        
-        // Повторяем заголовки на новой странице
-        doc.font(fontBold).fontSize(10);
-        x = tableLeft;
-        headers.forEach((header, i) => {
-          doc.text(header, x, y, {
-            width: colWidths[i],
-            align: i === 0 ? 'center' : 'left'
+        currentY = doc.page.margins.top;
+        tableTop = currentY; // Новый top для вертикалей
+        // Перерисовываем заголовок на новой странице
+        xPos = doc.page.margins.left;
+        doc.font(fontBold).fontSize(fontSize);
+        headers.forEach((header, colIndex) => {
+          const priceColumnIndex = headers.indexOf('Цена');
+          doc.text(header, xPos + cellPadding, currentY + cellPadding, {
+            width: columnWidths[colIndex] - cellPadding * 2,
+            align: colIndex === 0 || colIndex === headers.length - 1 ? 'center' : colIndex === priceColumnIndex ? 'right' : 'left'
           });
-          x += colWidths[i];
+          xPos += columnWidths[colIndex];
         });
-        y += 30;
-        doc.font(fontRegular).fontSize(9);
+        const newHeaderBottom = currentY + baseRowHeight;
+        drawHorizontalLine(currentY);
+        drawHorizontalLine(newHeaderBottom);
+        drawVerticalLines(currentY, newHeaderBottom);
+        currentY = newHeaderBottom;
       }
+
+      // Рисуем текст в ячейках
+      xPos = doc.page.margins.left;
+      rowData.forEach((cell, colIndex) => {
+        const priceColumnIndex = headers.indexOf('Цена');
+        doc.text(cell, xPos + cellPadding, currentY + cellPadding, {
+          width: columnWidths[colIndex] - cellPadding * 2,
+          align: colIndex === 0 || colIndex === rowData.length - 1 ? 'center' : colIndex === priceColumnIndex ? 'right' : 'left'
+        });
+        xPos += columnWidths[colIndex];
+      });
+
+      // Горизонтальная линия под строкой
+      drawHorizontalLine(currentY + maxRowHeight);
+
+      currentY += maxRowHeight;
     });
-    
+
+    // Финальные вертикальные линии для всей таблицы (закрываем до последней строки)
+    drawVerticalLines(tableTop, currentY);
+
     doc.end();
-    
   } catch (error) {
+    console.error('Ошибка генерации PDF:', error);
     next(error);
   }
 };
 
-
 /**
- * Экспорт продуктов в CSV (альтернатива)
+ * Экспорт продуктов в CSV
  */
 const exportProductsToCSV = async (req, res, next) => {
   try {
-    const products = await generateProductsPDF(req.query);
-    
-    const headers = ['ID', 'Название', 'Бренд', 'Категория', 'Цена', 'Цена со скидкой', 'Статус', 'Количество'];
-    
-    let csvContent = '\uFEFF'; // BOM для Excel
+    const products = await generateExportData(req.query);
+    let headers = ['ID', 'Название', 'Бренд', 'Категория', 'Цена', 'Количество'];
+    if (products.length > 0 && products[0].showStatus) {
+      headers = ['ID', 'Название', 'Бренд', 'Категория', 'Цена', 'Статус', 'Количество'];
+    }
+    let csvContent = '\uFEFF';
     csvContent += headers.join(';') + '\n';
-    
     products.forEach(product => {
-      const row = [
+      let row = [
         product.id,
-        `"${product.name}"`,
-        `"${product.brand}"`,
-        `"${product.category}"`,
-        product.price,
-        product.discountPrice || '',
-        `"${product.status}"`,
-        product.stock
+        `"${product.name.replace(/"/g, '""')}"`,
+        `"${product.brand.replace(/"/g, '""')}"`,
+        `"${product.category.replace(/"/g, '""')}"`,
+        `"${product.priceDisplay.replace(/"/g, '""')}"`,
       ];
+      if (product.showStatus) row.push(`"${product.status.replace(/"/g, '""')}"`);
+      row.push(product.stock);
       csvContent += row.join(';') + '\n';
     });
-    
+
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="products-${new Date().toISOString().split('T')[0]}.csv"`);
     res.send(csvContent);
-    
   } catch (error) {
     next(error);
   }

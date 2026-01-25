@@ -1,16 +1,36 @@
 // src/controllers/orderController.js 
 const orderService = require('../services/orderService');
 
+// =====================================
 // КЛИЕНТСКИЕ ЭНДПОИНТЫ
+// =====================================
 
 /**
- * @desc    Оформить заказ из корзины
+ * @desc    Оформить заказ БЕЗ онлайн-оплаты (для наличных)
  * @route   POST /api/orders/checkout
  * @access  Private (Customer)
  */
 const checkout = async (req, res, next) => {
   try {
     const result = await orderService.createOrder(req.user.id, req.body);
+    
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/*
+ * @desc    Оформить заказ С онлайн-оплатой (для card/online/sbp)
+ * @route   POST /api/orders/checkout-with-payment
+ * @access  Private (Customer)
+ */
+const checkoutWithPayment = async (req, res, next) => {
+  try {
+    const result = await orderService.createOrderWithPayment(
+      req.user.id, 
+      req.body
+    );
     
     res.status(201).json(result);
   } catch (err) {
@@ -109,7 +129,9 @@ const getOrderStatuses = async (req, res, next) => {
   }
 };
 
+// =====================================
 // АДМИНСКИЕ ЭНДПОИНТЫ
+// =====================================
 
 /**
  * @desc    Получить все заказы с фильтрацией
@@ -154,9 +176,9 @@ const getAllOrders = async (req, res, next) => {
 };
 
 /**
- * @desc Создать новый заказ (админ)
- * @route POST /api/admin/orders
- * @access Private (Admin/Manager)
+ * @desc    Создать новый заказ (админ)
+ * @route   POST /api/admin/orders
+ * @access  Private (Admin/Manager)
  */
 const createAdminOrderController = async (req, res, next) => {
   try {
@@ -312,6 +334,7 @@ const removeItemFromOrder = async (req, res, next) => {
 module.exports = {
   // Клиентские
   checkout,
+  checkoutWithPayment, 
   getMyOrders,
   getOrder,
   cancelOrder,

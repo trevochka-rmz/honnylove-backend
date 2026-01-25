@@ -4,27 +4,88 @@ const router = express.Router();
 const orderController = require('../controllers/orderController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
+// =====================================
 // ПУБЛИЧНЫЕ МАРШРУТЫ (без аутентификации)
- 
-//Получить доступные статусы заказов
+// =====================================
+
+/**
+ * Получить доступные статусы заказов
+ * GET /api/orders/statuses
+ * Доступ: Public
+ */
 router.get('/statuses', orderController.getOrderStatuses);
 
+// =====================================
 // КЛИЕНТСКИЕ МАРШРУТЫ (требуют аутентификации)
+// =====================================
+
 router.use(authenticate);
 
 /**
- * Оформить заказ из корзины
+ * Оформить заказ С онлайн-оплатой
+ * POST /api/orders/checkout-with-payment
+ * Доступ: Customer
+ * 
+ * Body:
+ * {
+ *   "selected_items": [42, 43],
+ *   "shipping_address": "г. Москва, ул. Ленина, д. 10, кв. 5",
+ *   "payment_method": "card",  // или "online" или "sbp"
+ *   "notes": "Звонить за час",
+ *   "shipping_cost": 300,
+ *   "tax_amount": 0,
+ *   "discount_amount": 100
+ * }
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "Заказ оформлен. Перейдите к оплате.",
+ *   "data": {
+ *     "order": { ... },
+ *     "order_number": "ORD-000157",
+ *     "payment": {
+ *       "confirmation_url": "https://yoomoney.ru/checkout/...",
+ *       "payment_id": 88,
+ *       "yookassa_payment_id": "2d9f9c5e-...",
+ *       "status": "pending",
+ *       "amount": "4900.00"
+ *     }
+ *   }
+ * }
+ */
+router.post(
+  '/checkout-with-payment',
+  requireRole(['customer']),
+  orderController.checkoutWithPayment
+);
+
+/**
+ * Оформить заказ БЕЗ онлайн-оплаты (для наличных)
  * POST /api/orders/checkout
  * Доступ: Customer
  * 
  * Body:
  * {
+ *   "selected_items": [42, 43],
  *   "shipping_address": "г. Москва, ул. Ленина, д. 10, кв. 5",
- *   "payment_method": "card",
+ *   "payment_method": "cash",
  *   "notes": "Звонить за час",
  *   "shipping_cost": 300,
  *   "tax_amount": 0,
  *   "discount_amount": 100
+ * }
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "Заказ успешно оформлен",
+ *   "data": {
+ *     "order": { ... },
+ *     "order_number": "ORD-000156",
+ *     "items_count": 2,
+ *     "needs_payment": false
+ *   }
  * }
  */
 router.post(
@@ -70,18 +131,16 @@ router.put(
   orderController.cancelOrder
 );
 
-/**
- * ==========================================
- * АДМИНСКИЕ МАРШРУТЫ
- * ==========================================
- */
+// =====================================
+// АДМИНСКИЕ МАРШРУТЫ
+// =====================================
 
 /**
  * Получить статистику заказов
  * GET /api/admin/orders/stats
  * Доступ: Admin, Manager
  * 
- * ВАЖНО: Этот маршрут должен быть ПЕРЕД /:id, иначе "stats" будет восприниматься как id
+ * ВАЖНО: Этот маршрут должен быть ПЕРЕД /:id
  */
 router.get(
   '/admin/orders/stats',
@@ -108,7 +167,6 @@ router.get(
   requireRole(['admin', 'manager']),
   orderController.getAllOrders
 );
-
 
 /**
  * Создать новый заказ (админ)

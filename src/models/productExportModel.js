@@ -8,7 +8,7 @@ const db = require('../config/db');
  */
 const getAllProductsForExport = async (filters = {}) => {
   let query = `
-    SELECT 
+    SELECT
       p.id,
       p.name,
       p.main_image_url as image,
@@ -28,31 +28,31 @@ const getAllProductsForExport = async (filters = {}) => {
     LEFT JOIN product_inventory pi ON p.id = pi.product_id AND pi.location_id = 1
     WHERE 1=1
   `;
-  
   const params = [];
   let paramIndex = 1;
-  
+
   // Фильтры
   if (filters.brandId) {
     query += ` AND p.brand_id = $${paramIndex}`;
     params.push(filters.brandId);
     paramIndex++;
   }
-  
   if (filters.categoryId) {
     query += ` AND p.category_id = $${paramIndex}`;
     params.push(filters.categoryId);
     paramIndex++;
   }
-  
   if (filters.search) {
     query += ` AND (p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
     params.push(`%${filters.search}%`);
     paramIndex++;
   }
-  
+  if (filters.inStock) {
+    query += ` AND pi.quantity > 0`;
+  }
+
   query += ` ORDER BY p.id DESC`;
-  
+
   const { rows } = await db.query(query, params);
   return rows;
 };

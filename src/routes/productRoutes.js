@@ -161,13 +161,9 @@ router.delete(
 
 /**
  * Экспорт продуктов в PDF
- * GET /api/products/export/pdf?brandId=1&categoryId=2&search=query
+ * GET /api/products/export/pdf
  * Доступ: Admin
- * 
- * Query параметры:
- * - brandId: фильтр по бренду (опционально)
- * - categoryId: фильтр по категории (опционально)
- * - search: поиск по названию (опционально)
+ * (Опциональные фильтры: ?brandId=... &categoryId=... &search=... &inStock=true/false &showStatus=true/false)
  */
 router.get(
   '/export/pdf',
@@ -178,8 +174,9 @@ router.get(
 
 /**
  * Экспорт продуктов в CSV
- * GET /api/products/export/csv?brandId=1&categoryId=2&search=query
+ * GET /api/products/export/csv
  * Доступ: Admin
+ * (Опциональные фильтры: ?brandId=... &categoryId=... &search=... &inStock=true/false &showStatus=true/false)
  */
 router.get(
   '/export/csv',
@@ -187,6 +184,5 @@ router.get(
   requireRole(['admin']),
   productExportController.exportProductsToCSV
 );
-
 
 module.exports = router;
