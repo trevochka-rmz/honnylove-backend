@@ -158,6 +158,91 @@ const getUserProfile = async (id) => {
   return profile;
 };
 
+// Генерация verification code (6 цифр, expires in 15 min)
+const generateVerificationCode = async (userId) => {
+  const code = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 символов
+  const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 мин
+  await updateUser(userId, { verification_code: code, verification_expires: expires });
+  return code;
+};
+
+// Верификация email по коду
+const verifyEmail = async (email, code) => {
+  const user = await getUserByEmail(email);
+  if (!user || user.verification_code !== code || user.verification_expires < new Date()) {
+    return false;
+  }
+  await updateUser(user.id, { is_verified: true, verification_code: null, verification_expires: null });
+  return true;
+};
+
+// Генерация reset code (аналогично)
+const generateResetCode = async (email) => {
+  const user = await getUserByEmail(email);
+  if (!user) return null;
+  const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const expires = new Date(Date.now() + 15 * 60 * 1000);
+  await updateUser(user.id, { reset_code: code, reset_expires: expires });
+  return { code, user };
+};
+
+// Сброс пароля по коду
+const resetPassword = async (email, code, newPassword) => {
+  const user = await getUserByEmail(email);
+  if (!user || user.reset_code !== code || user.reset_expires < new Date()) {
+    return false;
+  }
+  const hashedPassword = await bcrypt.hash(newPassword, 10); // Хэшируем новый пароль
+  await updateUser(user.id, { password_hash: hashedPassword, reset_code: null, reset_expires: null });
+  return true;
+};
+
+// Для OAuth: Получить по Google ID
+const getUserByGoogleId = async (googleId) => {
+  const { rows } = await db.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+  return rows[0];
+};
+
+// Получить по VK ID
+const getUserByVkId = async (vkId) => {
+  const { rows } = await db.query('SELECT * FROM users WHERE vk_id = $1', [vkId]);
+  return rows[0];
+};
+
+// Создать пользователя из OAuth данных (если не существует)
+const createUserFromOAuth = async (profile, provider) => {
+  let email = profile.emails[0].value;
+  let username = profile.displayName || email.split('@')[0];
+  let first_name = profile.name.givenName;
+  let last_name = profile.name.familyName;
+  const existing = await getUserByEmail(email);
+  if (existing) {
+    // Связываем с существующим
+    if (provider === 'google') {
+      await updateUser(existing.id, { google_id: profile.id });
+    } else if (provider === 'vk') {
+      await updateUser(existing.id, { vk_id: profile.id });
+    }
+    return existing;
+  }
+  // Создаём нового без пароля (password_hash null или empty)
+  const newUser = await createUser({
+    username,
+    email,
+    password_hash: null, 
+    role: 'customer',
+    first_name,
+    last_name,
+    is_verified: true, 
+  });
+  if (provider === 'google') {
+    await updateUser(newUser.id, { google_id: profile.id });
+  } else if (provider === 'vk') {
+    await updateUser(newUser.id, { vk_id: profile.id });
+  }
+  return newUser;
+};
+
 module.exports = {
   getUserById,
   getUserByIdSafe,
@@ -169,4 +254,11 @@ module.exports = {
   updateRefreshToken,
   getAllUsers,
   getUserProfile,
+  generateVerificationCode,
+  verifyEmail,
+  generateResetCode,
+  resetPassword,
+  getUserByGoogleId,
+  getUserByVkId,
+  createUserFromOAuth,
 };

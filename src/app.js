@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const path = require('path');
 const errorHandler = require('./middleware/errorHandler');
 
+
 // Routes
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -21,6 +22,8 @@ const bannersRoutes = require('./routes/bannersRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const passport = require('./config/passport');
+
 
 dotenv.config(); // Загружает .env
 
@@ -28,7 +31,7 @@ const app = express();
 
 app.use(cors({ origin: '*' })); // Или specific: 'http://localhost:3000'
 app.use(express.json()); // Парсит JSON body
-
+app.use(passport.initialize());
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Routes под /api

@@ -1,6 +1,5 @@
 // src/controllers/cartController.js
 const cartService = require('../services/cartService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 
 // Добавить товар в корзину
 const addToCart = async (req, res, next) => {
@@ -13,10 +12,6 @@ const addToCart = async (req, res, next) => {
       (i) =>
         i.product_id === item.product_id && i.user_id === item.user_id
     );
-    // Обрабатываем изображения
-    if (addedItem && addedItem.product) {
-      addedItem.product = addFullImageUrls(addedItem.product, req);
-    }
     res.status(201).json({
       message: 'Товар добавлен в корзину',
       item: addedItem,
@@ -31,10 +26,6 @@ const addToCart = async (req, res, next) => {
 const getCart = async (req, res, next) => {
   try {
     const cart = await cartService.getCart(req.user.id);
-    cart.items = cart.items.map((item) => ({
-      ...item,
-      product: item.product ? addFullImageUrls(item.product, req) : null,
-    }));
     res.json(cart);
   } catch (err) {
     next(err);
@@ -59,10 +50,6 @@ const updateCartItem = async (req, res, next) => {
     const updatedItem = cart.items.find(
       (i) => i.id === parseInt(req.params.itemId)
     );
-    // Обрабатываем изображения
-    if (updatedItem && updatedItem.product) {
-      updatedItem.product = addFullImageUrls(updatedItem.product, req);
-    }
     res.json({
       message: 'Количество обновлено',
       item: updatedItem,
@@ -113,11 +100,6 @@ const getSelectedCartItems = async (req, res, next) => {
       req.user.id, 
       selected_items
     );
-    
-    cart.items = cart.items.map((item) => ({
-      ...item,
-      product: item.product ? addFullImageUrls(item.product, req) : null,
-    }));
     
     res.json({
       success: true,

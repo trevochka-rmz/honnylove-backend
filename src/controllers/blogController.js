@@ -1,14 +1,12 @@
 // src/controllers/blogController.js
 const blogService = require('../services/blogService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 const upload = require('../middleware/uploadMiddleware');
 
 // Получить все посты блога
 const getBlogPosts = async (req, res, next) => {
   try {
     const result = await blogService.getAllBlogPosts(req.query);
-    const processed = addFullImageUrls(result, req);
-    res.json(processed);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -18,8 +16,7 @@ const getBlogPosts = async (req, res, next) => {
 const getBlogPostByIdentifier = async (req, res, next) => {
   try {
     const post = await blogService.getBlogPostByIdentifier(req.params.identifier);
-    const processed = addFullImageUrls(post, req);
-    res.json(processed);
+    res.json(post);
   } catch (err) {
     next(err);
   }
@@ -35,8 +32,7 @@ const createBlogPost = [
         postData.tags = JSON.parse(postData.tags);
       }
       const newPost = await blogService.createBlogPost(postData, req.file);
-      const processedPost = addFullImageUrls(newPost, req);
-      res.status(201).json(processedPost);
+      res.status(201).json(newPost);
     } catch (error) {
       next(error);
     }
@@ -52,8 +48,7 @@ const updateBlogPost = [
       const updateData = req.body;
       const updatedPost = await blogService.updateBlogPost(id, updateData, req.file);
       if (!updatedPost) return res.status(404).json({ error: 'Пост не найден' });
-      const processedPost = addFullImageUrls(updatedPost, req);
-      res.json(processedPost);
+      res.json(updatedPost);
     } catch (error) {
       next(error);
     }

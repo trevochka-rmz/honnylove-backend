@@ -1,17 +1,15 @@
 // src/controllers/categoryController.js
 const categoryService = require('../services/categoryService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 const upload = require('../middleware/uploadMiddleware');
 
 // Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async (req, res, next) => {
   try {
     const categories = await categoryService.getAllCategoriesForFrontend();
-    const processedCategories = addFullImageUrls(categories, req); 
     res.json({
       success: true,
       count: categories.length,
-      data: processedCategories,
+      data: categories,
     });
   } catch (err) {
     next(err);
@@ -22,10 +20,9 @@ const getAllCategoriesForFrontend = async (req, res, next) => {
 const getCategoryByIdentifier = async (req, res, next) => {
   try {
     const category = await categoryService.getCategoryByIdentifier(req.params.identifier);
-    const processedCategory = addFullImageUrls(category, req); 
     res.json({
       success: true,
-      data: processedCategory,
+      data: category,
     });
   } catch (err) {
     next(err);
@@ -37,11 +34,7 @@ const getCategories = async (req, res, next) => {
   try {
     const { categories, total, page, pages, limit, hasMore } =
       await categoryService.getAllCategories(req.query);
-    const processedResult = addFullImageUrls(
-      { categories, total, page, pages, limit, hasMore },
-      req
-    ); 
-    res.json(processedResult);
+    res.json({ categories, total, page, pages, limit, hasMore });
   } catch (err) {
     next(err);
   }
@@ -53,11 +46,10 @@ const createCategory = [
   async (req, res, next) => {
       try {
           const category = await categoryService.createCategory(req.body, req.file);
-          const processedCategory = addFullImageUrls(category, req);
           res.status(201).json({
               success: true,
               message: 'Категория создана успешно',
-              data: processedCategory,
+              data: category,
           });
       } catch (err) {
           next(err);
@@ -75,11 +67,10 @@ const updateCategory = [
               req.body,
               req.file
           );
-          const processedCategory = addFullImageUrls(category, req);
           res.json({
               success: true,
               message: 'Категория обновлена успешно',
-              data: processedCategory,
+              data: category,
           });
       } catch (err) {
           next(err);

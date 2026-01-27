@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const passport = require('../config/passport'); // Импорт passport
 
 /**
  * Регистрация нового пользователя
@@ -10,14 +11,14 @@ const authController = require('../controllers/authController');
  *
  * Body:
  * {
- *   "username": "Имя пользователя" (обязательно, min 3, max 255),
- *   "email": "email@example.com" (обязательно, валидный email),
- *   "password": "Пароль" (обязательно, min 8),
- *   "role": "customer" (опционально, по умолчанию 'customer', может быть 'customer', 'manager', 'admin'),
- *   "first_name": "Имя" (опционально),
- *   "last_name": "Фамилия" (опционально),
- *   "phone": "Телефон" (опционально),
- *   "address": "Адрес" (опционально)
+ * "username": "Имя пользователя" (обязательно, min 3, max 255),
+ * "email": "email@example.com" (обязательно, валидный email),
+ * "password": "Пароль" (обязательно, min 6),
+ * "role": "customer" (опционально, по умолчанию 'customer', может быть 'customer', 'manager', 'admin'),
+ * "first_name": "Имя" (опционально),
+ * "last_name": "Фамилия" (опционально),
+ * "phone": "Телефон" (опционально),
+ * "address": "Адрес" (опционально)
  * }
  */
 router.post('/register', authController.register);
@@ -29,8 +30,8 @@ router.post('/register', authController.register);
  *
  * Body:
  * {
- *   "email": "email@example.com" (обязательно),
- *   "password": "Пароль" (обязательно)
+ * "email": "email@example.com" (обязательно),
+ * "password": "Пароль" (обязательно, min 6)
  * }
  */
 router.post('/login', authController.login);
@@ -42,7 +43,7 @@ router.post('/login', authController.login);
  *
  * Body:
  * {
- *   "refreshToken": "Токен" (обязательно)
+ * "refreshToken": "Токен" (обязательно)
  * }
  */
 router.post('/refresh', authController.refresh);
@@ -54,10 +55,71 @@ router.post('/refresh', authController.refresh);
  *
  * Body:
  * {
- *   "email": "email@example.com" (обязательно),
- *   "password": "Пароль" (обязательно)
+ * "email": "email@example.com" (обязательно),
+ * "password": "Пароль" (обязательно)
  * }
  */
 router.post('/admin/login', authController.adminLogin);
+
+/**
+ * Запрос на отправку кода верификации
+ * POST /api/auth/verify/request
+ * Body: { "email": "email@example.com" }
+ */
+router.post('/verify/request', authController.requestVerification);
+
+/**
+ * Подтвердить email по коду
+ * POST /api/auth/verify/confirm
+ * Body: { "email": "email@example.com", "code": "ABC123" }
+ */
+router.post('/verify/confirm', authController.verifyEmail);
+
+/**
+ * Запрос на сброс пароля
+ * POST /api/auth/password/reset/request
+ * Body: { "email": "email@example.com" }
+ */
+router.post('/password/reset/request', authController.requestPasswordReset);
+
+/**
+ * Подтвердить сброс пароля
+ * POST /api/auth/password/reset/confirm
+ * Body: { "email": "email@example.com", "code": "ABC123", "newPassword": "newpass" }
+ */
+router.post('/password/reset/confirm', authController.confirmPasswordReset);
+
+/**
+ * OAuth Google: Запуск авторизации
+ * GET /api/auth/google
+ */
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+/**
+ * OAuth Google: Callback
+ * GET /api/auth/google/callback
+ * После успеха redirect на фронт с токенами (нужно настроить на фронте)
+ */
+router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
+  // Здесь req.user - результат из strategy
+  const { accessToken, refreshToken } = req.user;
+  // Redirect на фронт с токенами в query (или используй cookie/session)
+  res.redirect(`http://localhost:5173/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+});
+
+/**
+ * OAuth VK: Запуск
+ * GET /api/auth/vk
+ */
+router.get('/vk', passport.authenticate('vkontakte', { scope: ['email'] }));
+
+/**
+ * OAuth VK: Callback
+ * GET /api/auth/vk/callback
+ */
+router.get('/vk/callback', passport.authenticate('vkontakte', { failureRedirect: '/' }), (req, res) => {
+  const { accessToken, refreshToken } = req.user;
+  res.redirect(`http://localhost:5173/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+});
 
 module.exports = router;

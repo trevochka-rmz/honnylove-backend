@@ -1,13 +1,11 @@
 // src/controllers/productController.js
 const productService = require('../services/productService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 const upload = require('../middleware/uploadMiddleware');
 
 // Получить список продуктов
 const getProducts = async (req, res, next, isAdmin = false) => {
   try {
     let data = await productService.getAllProducts(req.query, isAdmin);
-    data = addFullImageUrls(data, req);
     if (isAdmin && req.user && req.user.role === 'manager') {
       data.products = data.products.map(product => {
         const { purchasePrice, ...rest } = product;
@@ -24,7 +22,6 @@ const getProducts = async (req, res, next, isAdmin = false) => {
 const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
   try {
     let product = await productService.getProductByIdentifier(req.params.identifier, isAdmin);
-    product = addFullImageUrls(product, req);
     if (isAdmin && req.user && req.user.role === 'manager') {
       const { purchasePrice, ...rest } = product;
       product = rest;
@@ -51,7 +48,6 @@ const createProduct = [
               mainImageFile, 
               galleryFiles
           );
-          product = addFullImageUrls(product, req);
           res.status(201).json(product);
       } catch (err) {
           next(err);
@@ -76,7 +72,6 @@ const updateProduct = [
               mainImageFile, 
               galleryFiles
           );
-          product = addFullImageUrls(product, req);
           res.json(product);
       } catch (err) {
           next(err);
@@ -98,7 +93,6 @@ const deleteProduct = async (req, res, next) => {
 const searchProducts = async (req, res, next) => {
   try {
     let products = await productService.searchProducts(req.query.query);
-    products = addFullImageUrls(products, req);
     res.json(products);
   } catch (err) {
     next(err);

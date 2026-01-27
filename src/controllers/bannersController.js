@@ -1,14 +1,12 @@
 // src/controllers/bannersController.js
 const bannersService = require('../services/bannersService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 const upload = require('../middleware/uploadMiddleware');
 
 // Получить все активные баннеры
 const getAllBanners = async (req, res, next) => {
   try {
     const banners = await bannersService.getAllBanners();
-    const processedBanners = addFullImageUrls(banners, req);
-    res.json(processedBanners);
+    res.json(banners);
   } catch (err) {
     next(err);
   }
@@ -18,8 +16,7 @@ const getAllBanners = async (req, res, next) => {
 const getAllBannersAdmin = async (req, res, next) => {
   try {
     const result = await bannersService.getAllBannersAdmin(req.query);
-    const processedResult = addFullImageUrls(result, req);
-    res.json(processedResult);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -29,8 +26,7 @@ const getAllBannersAdmin = async (req, res, next) => {
 const getBannerById = async (req, res, next) => {
   try {
     const banner = await bannersService.getBannerById(req.params.id);
-    const processedBanner = addFullImageUrls(banner, req);
-    res.json(processedBanner);
+    res.json(banner);
   } catch (err) {
     next(err);
   }
@@ -42,8 +38,7 @@ const createBanner = [
   async (req, res, next) => {
       try {
           const banner = await bannersService.createBanner(req.body, req.file);
-          const processedBanner = addFullImageUrls(banner, req);
-          res.status(201).json(processedBanner);
+          res.status(201).json(banner);
       } catch (err) {
           next(err);
       }
@@ -60,8 +55,7 @@ const updateBanner = [
               req.body,
               req.file
           );
-          const processedBanner = addFullImageUrls(banner, req);
-          res.json(processedBanner);
+          res.json(banner);
       } catch (err) {
           next(err);
       }

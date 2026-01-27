@@ -6,7 +6,7 @@ const authenticate = (req, res, next) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res
             .status(401)
-            .json({ error: 'No token provided or invalid format' });
+            .json({ error: 'Токен не предоставлен или неверный формат' });
     }
     const token = authHeader.split(' ')[1];
     try {
@@ -14,7 +14,7 @@ const authenticate = (req, res, next) => {
         req.user = decoded; // Добавляет user в req для контроллеров
         next();
     } catch (err) {
-        res.status(403).json({ error: err.message });
+        res.status(403).json({ error: 'Недействительный токен' });
     }
 };
 
@@ -22,7 +22,7 @@ const requireRole = (roles) => (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
         return res
             .status(403)
-            .json({ error: 'Access denied: insufficient permissions' });
+            .json({ error: 'Доступ запрещен: недостаточно прав' });
     }
     next();
 };

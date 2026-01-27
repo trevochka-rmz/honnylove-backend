@@ -1,6 +1,5 @@
 // src/controllers/wishlistController.js
 const wishlistService = require('../services/wishlistService');
-const { addFullImageUrls } = require('../utils/imageUtils');
 
 // Добавить товар в избранное
 const addToWishlist = async (req, res, next) => {
@@ -8,13 +7,12 @@ const addToWishlist = async (req, res, next) => {
     const item = await wishlistService.addToWishlist(req.user.id, req.body);
     const productService = require('../services/productService');
     const product = await productService.getProductByIdentifier(item.product_id);
-    const processedProduct = addFullImageUrls(product, req);
     res.status(201).json({
       id: item.id,
       user_id: item.user_id,
       product_id: item.product_id,
       created_at: item.created_at,
-      product: processedProduct,
+      product: product,
     });
   } catch (err) {
     next(err);
@@ -25,11 +23,7 @@ const addToWishlist = async (req, res, next) => {
 const getWishlist = async (req, res, next) => {
   try {
     const wishlist = await wishlistService.getWishlist(req.user.id);
-    const processedWishlist = wishlist.map((item) => ({
-      ...item,
-      product: item.product ? addFullImageUrls(item.product, req) : null,
-    }));
-    res.json(processedWishlist);
+    res.json(wishlist);
   } catch (err) {
     next(err);
   }
