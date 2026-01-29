@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const passport = require('../config/passport'); // Импорт passport
+const passport = require('../config/passport');
 
 /**
  * Регистрация нового пользователя
@@ -100,26 +100,27 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
  * GET /api/auth/google/callback
  * После успеха redirect на фронт с токенами (нужно настроить на фронте)
  */
-router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
-  // Здесь req.user - результат из strategy
-  const { accessToken, refreshToken } = req.user;
-  // Redirect на фронт с токенами в query (или используй cookie/session)
-  res.redirect(`http://localhost:5173/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`);
-});
+router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/login?error=auth_failed' }), (req, res) => {
+  const { accessToken, refreshToken } = req.user; // Из strategy
 
-/**
- * OAuth VK: Запуск
- * GET /api/auth/vk
- */
-router.get('/vk', passport.authenticate('vkontakte', { scope: ['email'] }));
+  // Установите accessToken в cookie (не HttpOnly, чтобы фронт мог читать для API запросов)
+  res.cookie('accessToken', accessToken, {
+    httpOnly: false, // Доступен для JS
+    secure: true,    // Только HTTPS
+    sameSite: 'Strict',
+    maxAge: 15 * 60 * 1000 // 15 мин, как access token
+  });
 
-/**
- * OAuth VK: Callback
- * GET /api/auth/vk/callback
- */
-router.get('/vk/callback', passport.authenticate('vkontakte', { failureRedirect: '/' }), (req, res) => {
-  const { accessToken, refreshToken } = req.user;
-  res.redirect(`http://localhost:5173/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+  // Установите refreshToken в HttpOnly cookie (для безопасности)
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,  // Не доступен для JS (защита от XSS)
+    secure: true,
+    sameSite: 'Strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 дней, как refresh
+  });
+
+  // Redirect на фронт (без params)
+  res.redirect(`${process.env.FRONTEND_URL}/profile`); // Или /, в зависимости от UX
 });
 
 module.exports = router;

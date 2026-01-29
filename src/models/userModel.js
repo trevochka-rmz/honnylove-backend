@@ -1,5 +1,7 @@
 // src/models/userModel.js
 const db = require('../config/db');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 // Получить пользователя по ID
 const getUserById = async (id) => {
@@ -121,6 +123,7 @@ const getUserProfile = async (id) => {
     address: user.address,
     discount_percentage: user.discount_percentage,
     is_active: user.is_active,
+    is_verified: user.is_verified,
     created_at: user.created_at,
     updated_at: user.updated_at,
   };
@@ -192,7 +195,7 @@ const resetPassword = async (email, code, newPassword) => {
   if (!user || user.reset_code !== code || user.reset_expires < new Date()) {
     return false;
   }
-  const hashedPassword = await bcrypt.hash(newPassword, 10); // Хэшируем новый пароль
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
   await updateUser(user.id, { password_hash: hashedPassword, reset_code: null, reset_expires: null });
   return true;
 };
@@ -200,12 +203,6 @@ const resetPassword = async (email, code, newPassword) => {
 // Для OAuth: Получить по Google ID
 const getUserByGoogleId = async (googleId) => {
   const { rows } = await db.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
-  return rows[0];
-};
-
-// Получить по VK ID
-const getUserByVkId = async (vkId) => {
-  const { rows } = await db.query('SELECT * FROM users WHERE vk_id = $1', [vkId]);
   return rows[0];
 };
 
@@ -220,8 +217,6 @@ const createUserFromOAuth = async (profile, provider) => {
     // Связываем с существующим
     if (provider === 'google') {
       await updateUser(existing.id, { google_id: profile.id });
-    } else if (provider === 'vk') {
-      await updateUser(existing.id, { vk_id: profile.id });
     }
     return existing;
   }
@@ -237,8 +232,6 @@ const createUserFromOAuth = async (profile, provider) => {
   });
   if (provider === 'google') {
     await updateUser(newUser.id, { google_id: profile.id });
-  } else if (provider === 'vk') {
-    await updateUser(newUser.id, { vk_id: profile.id });
   }
   return newUser;
 };
@@ -259,6 +252,5 @@ module.exports = {
   generateResetCode,
   resetPassword,
   getUserByGoogleId,
-  getUserByVkId,
   createUserFromOAuth,
 };

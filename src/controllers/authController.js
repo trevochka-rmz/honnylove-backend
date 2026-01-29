@@ -41,8 +41,6 @@ const refresh = async (req, res, next) => {
   }
 };
 
-// Новые контроллеры
-
 // Запрос верификации
 const requestVerification = async (req, res, next) => {
   try {
