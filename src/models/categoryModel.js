@@ -39,57 +39,61 @@ const calculateDisplayOrder = async (parent_id, currentId = null) => {
 // Получить все категории в формате дерева для фронтенда
 const getAllCategoriesForFrontend = async () => {
   const query = `
-        SELECT
-            c1.id as l1_id,
-            c1.name as l1_name,
-            c1.slug as l1_slug,
-            COALESCE(c1.image_url, '/uploads/categories/' || c1.id || '/main.jpg') as l1_image_url,
-            c1.display_order as l1_order,
-            c2.id as l2_id,
-            c2.name as l2_name,
-            c2.slug as l2_slug,
-            COALESCE(c2.image_url, '/uploads/categories/' || c2.id || '/main.jpg') as l2_image_url,
-            c2.display_order as l2_order,
-            c3.id as l3_id,
-            c3.name as l3_name,
-            c3.slug as l3_slug,
-            COALESCE(c3.image_url, '/uploads/categories/' || c3.id || '/main.jpg') as l3_image_url,
-            c3.display_order as l3_order,
-            (SELECT COUNT(*) FROM product_products p WHERE p.category_id = c1.id AND p.is_active = true) as l1_product_count,
-            (SELECT COUNT(*) FROM product_products p WHERE p.category_id = c2.id AND p.is_active = true) as l2_product_count,
-            (SELECT COUNT(*) FROM product_products p WHERE p.category_id = c3.id AND p.is_active = true) as l3_product_count
-        FROM product_categories c1
-        LEFT JOIN product_categories c2 ON c2.parent_id = c1.id AND c2.is_active = true
-        LEFT JOIN product_categories c3 ON c3.parent_id = c2.id AND c3.is_active = true
-        WHERE c1.parent_id IS NULL
-        AND c1.is_active = true
-        ORDER BY
-            c1.display_order,
-            c1.name,
-            COALESCE(c2.display_order, 999),
-            COALESCE(c2.name, ''),
-            COALESCE(c3.display_order, 999),
-            COALESCE(c3.name, '');
-    `;
+    SELECT
+        c1.id as l1_id,
+        c1.name as l1_name,
+        c1.slug as l1_slug,
+        COALESCE(c1.image_url, '/uploads/categories/' || c1.id || '/main.jpg') as l1_image_url,
+        c1.display_order as l1_order,
+        c2.id as l2_id,
+        c2.name as l2_name,
+        c2.slug as l2_slug,
+        COALESCE(c2.image_url, '/uploads/categories/' || c2.id || '/main.jpg') as l2_image_url,
+        c2.display_order as l2_order,
+        c3.id as l3_id,
+        c3.name as l3_name,
+        c3.slug as l3_slug,
+        COALESCE(c3.image_url, '/uploads/categories/' || c3.id || '/main.jpg') as l3_image_url,
+        c3.display_order as l3_order,
+        (SELECT COUNT(*) FROM product_products p 
+         WHERE p.category_id = ANY(get_category_hierarchy_ids(c1.id)) AND p.is_active = true) as l1_product_count,
+        (SELECT COUNT(*) FROM product_products p 
+         WHERE p.category_id = ANY(get_category_hierarchy_ids(c2.id)) AND p.is_active = true) as l2_product_count,
+        (SELECT COUNT(*) FROM product_products p 
+         WHERE p.category_id = ANY(get_category_hierarchy_ids(c3.id)) AND p.is_active = true) as l3_product_count
+    FROM product_categories c1
+    LEFT JOIN product_categories c2 ON c2.parent_id = c1.id AND c2.is_active = true
+    LEFT JOIN product_categories c3 ON c3.parent_id = c2.id AND c3.is_active = true
+    WHERE c1.parent_id IS NULL
+    AND c1.is_active = true
+    ORDER BY
+        c1.display_order,
+        c1.name,
+        COALESCE(c2.display_order, 999),
+        COALESCE(c2.name, ''),
+        COALESCE(c3.display_order, 999),
+        COALESCE(c3.name, '');
+  `;
   const { rows } = await db.query(query);
   return rows;
 };
 
 // Получить категорию по идентификатору (id или slug) с подкатегориями
+// Получить категорию по идентификатору (id или slug) с подкатегориями
 const getCategoryByIdentifier = async (identifier) => {
   let query = `
-        SELECT
-            id,
-            name,
-            slug,
-            COALESCE(image_url, '/uploads/categories/' || id || '/main.jpg') as image_url,
-            display_order,
-            parent_id,
-            level,
-            description,
-            is_active
-        FROM product_categories
-        WHERE `;
+    SELECT
+        id,
+        name,
+        slug,
+        COALESCE(image_url, '/uploads/categories/' || id || '/main.jpg') as image_url,
+        display_order,
+        parent_id,
+        level,
+        description,
+        is_active
+    FROM product_categories
+    WHERE `;
   let param = identifier;
   const idNum = parseInt(identifier, 10);
   if (!isNaN(idNum)) {
@@ -104,38 +108,38 @@ const getCategoryByIdentifier = async (identifier) => {
   }
   const category = categoryRows[0];
 
+  // Подсчёт с учётом всего поддерева
   const countQuery = `
-        SELECT COUNT(*) as count
-        FROM product_products
-        WHERE category_id = $1 AND is_active = true
-    `;
+    SELECT COUNT(*) as count
+    FROM product_products
+    WHERE category_id = ANY(get_category_hierarchy_ids($1)) AND is_active = true
+  `;
   const { rows: countRows } = await db.query(countQuery, [category.id]);
   category.product_count = parseInt(countRows[0].count, 10);
- 
+
   const childrenQuery = `
-        SELECT
-            id,
-            name,
-            slug,
-            COALESCE(image_url, '/uploads/categories/' || id || '/main.jpg') as image_url,
-            display_order,
-            level
-        FROM product_categories
-        WHERE parent_id = $1 AND is_active = true
-        ORDER BY display_order, name
-    `;
+    SELECT
+        id,
+        name,
+        slug,
+        COALESCE(image_url, '/uploads/categories/' || id || '/main.jpg') as image_url,
+        display_order,
+        level
+    FROM product_categories
+    WHERE parent_id = $1 AND is_active = true
+    ORDER BY display_order, name
+  `;
   const { rows: childrenRows } = await db.query(childrenQuery, [category.id]);
-  
+
+  // Для каждого ребёнка — подсчёт с учётом его поддерева
   const childrenWithCounts = await Promise.all(
     childrenRows.map(async (child) => {
       const childCountQuery = `
-                SELECT COUNT(*) as count
-                FROM product_products
-                WHERE category_id = $1 AND is_active = true
-            `;
-      const { rows: childCountRows } = await db.query(childCountQuery, [
-        child.id,
-      ]);
+        SELECT COUNT(*) as count
+        FROM product_products
+        WHERE category_id = ANY(get_category_hierarchy_ids($1)) AND is_active = true
+      `;
+      const { rows: childCountRows } = await db.query(childCountQuery, [child.id]);
       child.product_count = parseInt(childCountRows[0].count, 10);
       return child;
     })

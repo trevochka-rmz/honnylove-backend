@@ -35,9 +35,14 @@ const getAllProducts = async ({
     params.push(categoryId);
     where += (where ? ' AND' : '') + ` category_id IN (SELECT id FROM subcats)`;
   }
+  let brandIds = [];
   if (brandId) {
-    where += (where ? ' AND' : '') + ` brand_id = $${params.length + 1}`;
-    params.push(brandId);
+    const idsStr = brandId.toString();  // На случай, если пришло число — конвертируем в строку
+    brandIds = idsStr.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+  }
+  if (brandIds.length > 0) {
+    where += (where ? ' AND' : '') + ` brand_id = ANY($${params.length + 1}::int[])`;
+    params.push(`{${brandIds.join(',')}}`);  // Формат PostgreSQL: {1,2,3}
   }
   if (search) {
     where += (where ? ' AND' : '') +

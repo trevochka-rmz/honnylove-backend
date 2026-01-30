@@ -18,7 +18,8 @@ const passport = require('../config/passport');
  * "first_name": "Имя" (опционально),
  * "last_name": "Фамилия" (опционально),
  * "phone": "Телефон" (опционально),
- * "address": "Адрес" (опционально)
+ * "address": "Адрес" (опционально),
+ *  "sendVerification": true/false (опционально)
  * }
  */
 router.post('/register', authController.register);

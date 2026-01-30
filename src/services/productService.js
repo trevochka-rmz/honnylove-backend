@@ -96,7 +96,7 @@ const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(9),
   categoryId: Joi.number().integer().optional(),
-  brandId: Joi.number().integer().optional(),
+  brandId: Joi.string().optional(),
   search: Joi.string().optional(),
   minPrice: Joi.number().positive().optional(),
   maxPrice: Joi.number().positive().optional(),

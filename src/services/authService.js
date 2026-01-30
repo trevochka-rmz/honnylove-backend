@@ -32,6 +32,7 @@ const userSchema = Joi.object({
   last_name: Joi.string().optional(),
   phone: Joi.string().optional(),
   address: Joi.string().optional(),
+  sendVerification: Joi.boolean().default(false),
 });
 
 // Схема для логина (добавил min для password)
@@ -55,24 +56,33 @@ const resetSchema = Joi.object({
   }),
 });
 
-// Зарегистрировать нового пользователя (с верификацией email, но опциональной)
+// Зарегистрировать нового пользователя (но опциональной)
 const registerUser = async (data) => {
-  const { error, value } = userSchema.validate(data, { abortEarly: false }); // Все ошибки сразу
+  const { error, value } = userSchema.validate(data, { abortEarly: false });
   if (error) {
     const messages = error.details.map((d) => d.message).join('; ');
     throw new AppError(messages, 400);
   }
+
   const existingUser = await userModel.getUserByEmail(value.email);
   if (existingUser) throw new AppError('Email уже используется', 400);
+
   const hashedPassword = await bcrypt.hash(value.password, 10);
   const newUser = await userModel.createUser({
     ...value,
     password_hash: hashedPassword,
   });
-  // Генерируем и отправляем verification code (опционально для подтверждения позже)
-  const code = await userModel.generateVerificationCode(newUser.id);
-  await emailService.sendVerificationEmail(newUser.email, code);
-  return { message: 'Пользователь создан. Код для подтверждения отправлен на email (опционально).' };
+
+  let message = 'Пользователь создан.';
+  if (value.sendVerification) {
+    const code = await userModel.generateVerificationCode(newUser.id);
+    await emailService.sendVerificationEmail(newUser.email, code);
+    message += ' Код для подтверждения отправлен на email.';
+  } else {
+    message += ' Email не подтверждён (верификация не запрашивалась).';
+  }
+
+  return { message };
 };
 
 // Логин для администратора/менеджера (убрал обязательную проверку is_verified)
@@ -213,22 +223,6 @@ const loginWithGoogle = async (profile) => {
   };
 };
 
-// Логин через VK (аналогично)
-const loginWithVk = async (profile) => {
-  let user = await userModel.getUserByVkId(profile.id);
-  if (!user) {
-    user = await userModel.createUserFromOAuth(profile, 'vk');
-  }
-  const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user);
-  await userModel.updateRefreshToken(user.id, refreshToken);
-  return {
-    user: { ...user, password_hash: undefined },
-    accessToken,
-    refreshToken,
-  };
-};
-
 module.exports = {
   registerUser,
   loginUser,
@@ -241,5 +235,4 @@ module.exports = {
   requestPasswordReset,
   confirmPasswordReset,
   loginWithGoogle,
-  loginWithVk,
 };
