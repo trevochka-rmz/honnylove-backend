@@ -1,26 +1,51 @@
+// src/utils/jwtUtils.js
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
+// Access Token (15 минут)
 const generateAccessToken = (user) => {
-    return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
-        expiresIn: '15m',
-    });
+    return jwt.sign(
+        { 
+            id: user.id, 
+            role: user.role,
+            email: user.email 
+        }, 
+        process.env.JWT_ACCESS_SECRET, 
+        { expiresIn: '15m' }
+    );
 };
 
-const generateRefreshToken = (user) => {
-    return jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, {
-        expiresIn: '7d',
-    });
+// Session Token (заменяет refresh token, 7 дней)
+const generateSessionToken = (sessionData) => {
+    return jwt.sign(
+        { 
+            userId: sessionData.userId,
+            sessionId: sessionData.sessionId 
+        }, 
+        process.env.JWT_SESSION_SECRET, 
+        { expiresIn: '7d' }
+    );
 };
 
-const verifyToken = (token, secret = process.env.JWT_SECRET) => {
+// Верификация токенов
+const verifyToken = (token, secret = process.env.JWT_ACCESS_SECRET) => {
     try {
         return jwt.verify(token, secret);
     } catch (err) {
-        throw new Error('Invalid or expired token');
+        throw new Error('Неверный или срок действия токена закончился');
     }
 };
 
-module.exports = { generateAccessToken, generateRefreshToken, verifyToken };
+// Верификация session token
+const verifySessionToken = (token) => {
+    return verifyToken(token, process.env.JWT_SESSION_SECRET);
+};
+
+module.exports = { 
+    generateAccessToken, 
+    generateSessionToken,
+    verifyToken,
+    verifySessionToken
+};

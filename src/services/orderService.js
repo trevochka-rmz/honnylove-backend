@@ -130,27 +130,36 @@ const createOrder = async (userId, orderData) => {
     }
     
     // Проверяем активность товаров и наличие на складе
+    const insufficientItems = [];
     for (const item of cartItems) {
       if (!item.is_active) {
         throw new AppError(
-          `Товар "${item.name}" больше недоступен для заказа`, 
+          `Товар "${item.name}" больше недоступен для заказа`,
           400
         );
       }
-      
       const inventoryCheck = await orderModel.checkInventory(
-        client, 
-        item.product_id, 
+        client,
+        item.product_id,
         item.cart_quantity
       );
-      
       if (!inventoryCheck.sufficient) {
-        throw new AppError(
-          `Недостаточно товара "${item.name}" на складе. ` +
-          `Доступно: ${inventoryCheck.available}, требуется: ${item.cart_quantity}`,
-          400
-        );
+        insufficientItems.push({
+          product_id: item.product_id,
+          name: item.name,
+          sku: item.sku,
+          available: inventoryCheck.available,
+          required: item.cart_quantity,
+          shortage: inventoryCheck.shortage
+        });
       }
+    }
+    if (insufficientItems.length > 0) {
+      throw new AppError(
+        'Недостаточно товаров на складе. Смотрите детали.',
+        400,
+        { insufficientItems }
+      );
     }
     
     // Рассчитываем итоговую сумму
@@ -350,16 +359,26 @@ const createAdminOrder = async (adminUserId, orderData) => {
     }
 
     // 3. Проверяем наличие на складе
-    const inventoryChecks = [];
+    const insufficientItems = [];
     for (const item of items) {
       const inventoryCheck = await orderModel.checkInventory(client, item.id, item.cart_quantity);
       if (!inventoryCheck.sufficient) {
-        throw new AppError(
-          `Недостаточно товара "${item.name}" на складе. Доступно: ${inventoryCheck.available}, требуется: ${item.cart_quantity}`,
-          400
-        );
+        insufficientItems.push({
+          product_id: item.id,
+          name: item.name,
+          sku: item.sku,
+          available: inventoryCheck.available,
+          required: item.cart_quantity,
+          shortage: inventoryCheck.shortage
+        });
       }
-      inventoryChecks.push({ item, inventoryCheck });
+    }
+    if (insufficientItems.length > 0) {
+      throw new AppError(
+        'Недостаточно товаров на складе. Смотрите детали.',
+        400,
+        { insufficientItems }
+      );
     }
 
     // 4. Рассчитываем итоговую сумму
@@ -570,24 +589,35 @@ const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') 
     // Если восстанавливаем из отмененного - списываем со склада
     if (oldStatus === 'cancelled' && newStatus !== 'cancelled') {
       const items = currentOrder.items || [];
-      
+      const insufficientItems = [];
       for (const item of items) {
         const inventoryCheck = await orderModel.checkInventory(
-          client, 
-          item.product_id, 
+          client,
+          item.product_id,
           item.quantity
         );
-        
         if (!inventoryCheck.sufficient) {
-          throw new AppError(
-            `Недостаточно товара "${item.product_name}" на складе для восстановления заказа`,
-            400
-          );
+          insufficientItems.push({
+            product_id: item.product_id,
+            name: item.product_name,
+            sku: item.product_sku,
+            available: inventoryCheck.available,
+            required: item.quantity,
+            shortage: inventoryCheck.shortage
+          });
         }
-        
+      }
+      if (insufficientItems.length > 0) {
+        throw new AppError(
+          'Недостаточно товаров на складе для восстановления заказа. Смотрите детали.',
+          400,
+          { insufficientItems }
+        );
+      }
+      for (const item of items) {
         await orderModel.decreaseInventory(
-          client, 
-          item.product_id, 
+          client,
+          item.product_id,
           item.quantity
         );
       }
@@ -751,16 +781,27 @@ const addItemToOrder = async (orderId, itemData, userId, role) => {
     const product = productRes.rows[0];
     
     // Проверяем наличие на складе
+    const insufficientItems = [];
     const inventoryCheck = await orderModel.checkInventory(
       client,
       value.product_id,
       value.quantity
     );
-    
     if (!inventoryCheck.sufficient) {
+      insufficientItems.push({
+        product_id: value.product_id,
+        name: product.name,
+        sku: product.sku,
+        available: inventoryCheck.available,
+        required: value.quantity,
+        shortage: inventoryCheck.shortage
+      });
+    }
+    if (insufficientItems.length > 0) {
       throw new AppError(
-        `Недостаточно товара на складе. Доступно: ${inventoryCheck.available}`,
-        400
+        'Недостаточно товаров на складе. Смотрите детали.',
+        400,
+        { insufficientItems }
       );
     }
     

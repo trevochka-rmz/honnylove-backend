@@ -1,10 +1,10 @@
 // src/utils/errorUtils.js
 class AppError extends Error {
-    constructor(message, status = 500) {
-        super(message);
-        this.status = status;
-        this.isOperational = true; // Для отличия от unexpected ошибок
+    constructor(message, status = 500, data = null) { 
+      super(message);
+      this.status = status;
+      this.data = data; 
+      this.isOperational = true;
     }
-}
-
-module.exports = AppError;
+  }
+  module.exports = AppError;

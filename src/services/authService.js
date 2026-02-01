@@ -1,6 +1,7 @@
 // src/services/authService.js
 const bcrypt = require('bcryptjs');
 const Joi = require('joi');
+const sessionModel = require('../models/sessionModel');
 const userModel = require('../models/userModel');
 const {
   generateAccessToken,
