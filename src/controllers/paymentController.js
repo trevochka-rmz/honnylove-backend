@@ -1,4 +1,4 @@
-// src/controllers/paymentController.js
+// src/controllers/paymentController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 const paymentService = require('../services/paymentService');
 const orderService = require('../services/orderService');
 
@@ -25,7 +25,6 @@ const createPayment = async (req, res, next) => {
     const existingPayment = await paymentModel.findPaymentByOrderId(orderId);
     
     if (existingPayment) {
-      // Если платеж уже создан, возвращаем его данные
       return res.json({
         success: true,
         payment_id: existingPayment.id,
@@ -36,7 +35,7 @@ const createPayment = async (req, res, next) => {
       });
     }
     
-    // Проверяем, что сумма заказа > 0
+    // Проверяем сумму
     if (order.total_amount <= 0) {
       return res.status(400).json({ 
         error: 'Сумма заказа должна быть больше 0' 
@@ -96,23 +95,34 @@ const getPaymentStatus = async (req, res, next) => {
   }
 };
 
-// Обработать вебхук от ЮKassa (не требует аутентификации!)
+// ✅ ИСПРАВЛЕНО: Обработать вебхук от ЮKassa
 const handleWebhook = async (req, res, next) => {
   try {
-    // ВАЖНО: ЮKassa отправляет вебхуки без заголовков авторизации
-    // Здесь можно добавить проверку подписи вебхука
-    
     const webhookData = req.body;
     
-    // Обрабатываем вебхук
-    await paymentService.handleWebhook(webhookData);
+    console.log('═══════════════════════════════════════');
+    console.log('📨 ПОЛУЧЕН WEBHOOK ОТ ЮKASSA');
+    console.log('═══════════════════════════════════════');
+    console.log('Полные данные:', JSON.stringify(webhookData, null, 2));
     
-    // Всегда возвращаем 200 OK ЮKassa
+    // Обрабатываем webhook
+    const result = await paymentService.handleWebhook(webhookData);
+    
+    console.log('Результат обработки:', result);
+    console.log('═══════════════════════════════════════\n');
+    
+    // ✅ ВСЕГДА возвращаем 200 OK ЮKassa
     res.status(200).send('OK');
     
   } catch (err) {
-    console.error('Webhook error:', err);
-    // Все равно возвращаем 200, чтобы ЮKassa не пыталась отправить повторно
+    console.error('═══════════════════════════════════════');
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА В WEBHOOK КОНТРОЛЛЕРЕ');
+    console.error('═══════════════════════════════════════');
+    console.error('Ошибка:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('═══════════════════════════════════════\n');
+    
+    // ✅ ВСЁ РАВНО возвращаем 200 OK
     res.status(200).send('OK');
   }
 };
@@ -122,17 +132,32 @@ const paymentSuccess = async (req, res, next) => {
   try {
     const { orderId } = req.params;
     
+    console.log('═══════════════════════════════════════');
+    console.log('🔄 РЕДИРЕКТ ОТ ЮKASSA');
+    console.log('═══════════════════════════════════════');
+    console.log('Order ID:', orderId);
+    
     // Обновляем статус платежа
     await paymentService.checkAndUpdatePayment(orderId);
     
-    // Редирект на фронтенд с параметром
-    const frontendUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/orders/${orderId}?payment=success`);
+    // Редирект на фронтенд
+    const frontendUrl = process.env.FRONTEND_URL || 'https://honnylove.ru';
+    const redirectUrl = `${frontendUrl}/order/${orderId}`;
+    
+    console.log('Редирект на:', redirectUrl);
+    console.log('═══════════════════════════════════════\n');
+    
+    res.redirect(redirectUrl);
     
   } catch (err) {
-    console.error('Payment success error:', err);
+    console.error('═══════════════════════════════════════');
+    console.error('❌ ОШИБКА В PAYMENT SUCCESS');
+    console.error('═══════════════════════════════════════');
+    console.error('Ошибка:', err.message);
+    console.error('═══════════════════════════════════════\n');
+    
     // Даже при ошибке редиректим пользователя
-    const frontendUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://honnylove.ru';
     res.redirect(`${frontendUrl}/orders?payment=error`);
   }
 };

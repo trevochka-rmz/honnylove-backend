@@ -1,6 +1,7 @@
-// src/services/paymentService.js
+// src/services/paymentService.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 const Joi = require('joi');
 const { v4: uuidv4 } = require('uuid');
+const db = require('../config/db');
 const orderModel = require('../models/orderModel');
 const paymentModel = require('../models/paymentModel');
 const AppError = require('../utils/errorUtils');
@@ -37,7 +38,7 @@ const createYookassaPayment = async (paymentData) => {
     // Генерируем ключ идемпотентности
     const idempotenceKey = uuidv4();
 
-    // Подготавливаем данные для ЮKassa (упрощенная версия без чека)
+    // Подготавливаем данные для ЮKassa
     const paymentPayload = {
       amount: {
         value: value.amount.toFixed(2),
@@ -52,7 +53,7 @@ const createYookassaPayment = async (paymentData) => {
       },
       confirmation: {
         type: 'redirect',
-        return_url: `${process.env.APP_BASE_URL || 'http://localhost:3000'}/orders/${value.order_id}/success`
+        return_url: `${process.env.APP_BASE_URL || 'https://honnylove.ru'}/api/payments/success/${value.order_id}`
       }
     };
 
@@ -62,7 +63,7 @@ const createYookassaPayment = async (paymentData) => {
       idempotenceKey
     );
 
-    console.log('Платеж создан в ЮKassa:', {
+    console.log('✅ Платеж создан в ЮKassa:', {
       id: yookassaPayment.id,
       status: yookassaPayment.status,
       confirmation_url: yookassaPayment.confirmation?.confirmation_url
@@ -93,16 +94,11 @@ const createYookassaPayment = async (paymentData) => {
     };
 
   } catch (err) {
-    console.error('Ошибка создания платежа ЮKassa:', err);
+    console.error('❌ Ошибка создания платежа ЮKassa:', err);
     
-    // Более подробный лог ошибки
     if (err.response?.data) {
       console.error('Детали ошибки ЮKassa:', JSON.stringify(err.response.data, null, 2));
       throw new AppError(`Ошибка ЮKassa: ${err.response.data.description || 'Неизвестная ошибка'}`, 400);
-    }
-    
-    if (err.message) {
-      console.error('Сообщение ошибки:', err.message);
     }
     
     throw new AppError(`Ошибка при создании платежа: ${err.message || 'Неизвестная ошибка'}`, 500);
@@ -123,12 +119,10 @@ const getPaymentStatus = async (paymentId) => {
         payment.captured_at || new Date()
       );
       
-      // Если платеж успешен, обновляем статус заказа
+      // ✅ ИСПРАВЛЕНО: Если платеж успешен, обновляем статус заказа
       if (payment.status === 'succeeded') {
         const order = await orderModel.getOrderById(dbPayment.order_id);
         if (order && order.status === 'pending') {
-          // Используем транзакцию для обновления статуса заказа
-          const db = require('../config/db');
           const client = await db.pool.connect();
           
           try {
@@ -139,10 +133,10 @@ const getPaymentStatus = async (paymentId) => {
             
             await client.query('COMMIT');
             
-            console.log(`Заказ ${dbPayment.order_id} переведен в статус "paid"`);
+            console.log(`✅ Заказ ${dbPayment.order_id} переведен в статус "paid"`);
           } catch (error) {
             await client.query('ROLLBACK');
-            console.error('Ошибка при обновлении статуса заказа:', error);
+            console.error('❌ Ошибка при обновлении статуса заказа:', error);
           } finally {
             client.release();
           }
@@ -152,83 +146,144 @@ const getPaymentStatus = async (paymentId) => {
     
     return payment;
   } catch (err) {
-    console.error('Ошибка получения статуса платежа:', err);
+    console.error('❌ Ошибка получения статуса платежа:', err);
     throw new AppError('Не удалось получить статус платежа', 500);
   }
 };
 
-// Обработать вебхук от ЮKassa
+// ✅ ИСПРАВЛЕНО: Обработать вебхук от ЮKassa
 const handleWebhook = async (webhookData) => {
+  const client = await db.pool.connect();
+  
   try {
+    // ШАГ 1: Извлекаем данные
     const { type, event, object } = webhookData;
-    
-    // ЮKassa может отправлять данные в разном формате
     const paymentEvent = event || type;
     const paymentObject = object || webhookData;
     
-    console.log('Получен вебхук от ЮKassa:', {
-      event: paymentEvent,
-      paymentId: paymentObject.id,
-      status: paymentObject.status
-    });
+    console.log('═══════════════════════════════════════');
+    console.log('📥 WEBHOOK ОТ ЮKASSA');
+    console.log('═══════════════════════════════════════');
+    console.log('Событие:', paymentEvent);
+    console.log('ID платежа:', paymentObject.id);
+    console.log('Статус:', paymentObject.status);
+    console.log('Сумма:', paymentObject.amount?.value, paymentObject.amount?.currency);
+    console.log('Метаданные:', paymentObject.metadata);
     
-    if (paymentEvent === 'payment.waiting_for_capture') {
-      // Платеж ожидает подтверждения (захвата)
-      console.log(`Платеж ${paymentObject.id} ожидает подтверждения`);
-    }
-    
+    // ШАГ 2: Обрабатываем успешный платеж
     if (paymentEvent === 'payment.succeeded' || paymentObject.status === 'succeeded') {
-      // Платеж успешно завершен
+      console.log('✅ Обработка успешного платежа...');
+      
+      // Находим платеж в БД
       const dbPayment = await paymentModel.findPaymentByYookassaId(paymentObject.id);
       
-      if (dbPayment) {
+      if (!dbPayment) {
+        console.error('❌ Платеж не найден в БД:', paymentObject.id);
+        return { success: false, message: 'Payment not found' };
+      }
+      
+      console.log('Найден платеж:', {
+        id: dbPayment.id,
+        order_id: dbPayment.order_id,
+        current_status: dbPayment.status
+      });
+      
+      // ✅ НАЧИНАЕМ ТРАНЗАКЦИЮ
+      await client.query('BEGIN');
+      
+      try {
         // Обновляем статус платежа
-        await paymentModel.updatePaymentStatus(
-          dbPayment.id, 
-          'succeeded',
-          paymentObject.captured_at || new Date()
-        );
+        await client.query(`
+          UPDATE payments 
+          SET status = $1, captured_at = $2, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $3
+        `, ['succeeded', paymentObject.captured_at || new Date(), dbPayment.id]);
         
-        // Обновляем статус заказа
+        console.log('✅ Статус платежа обновлен на "succeeded"');
+        
+        // Получаем заказ
         const order = await orderModel.getOrderById(dbPayment.order_id);
-        if (order && order.status === 'pending') {
-          const db = require('../config/db');
-          const client = await db.pool.connect();
-          
-          try {
-            await client.query('BEGIN');
-            
-            await orderModel.updateOrderStatus(client, dbPayment.order_id, 'paid');
-            await orderModel.addStatusHistory(client, dbPayment.order_id, 'paid', order.user_id);
-            
-            await client.query('COMMIT');
-            
-            console.log(`Заказ ${dbPayment.order_id} переведен в статус "paid"`);
-          } catch (error) {
-            await client.query('ROLLBACK');
-            console.error('Ошибка при обновлении статуса заказа:', error);
-          } finally {
-            client.release();
-          }
+        
+        if (!order) {
+          console.error('❌ Заказ не найден:', dbPayment.order_id);
+          await client.query('ROLLBACK');
+          return { success: false, message: 'Order not found' };
         }
+        
+        console.log('Найден заказ:', {
+          id: order.id,
+          current_status: order.status,
+          total_amount: order.total_amount
+        });
+        
+        // Обновляем статус заказа (только если pending)
+        if (order.status === 'pending') {
+          await orderModel.updateOrderStatus(client, dbPayment.order_id, 'paid');
+          await orderModel.addStatusHistory(client, dbPayment.order_id, 'paid', order.user_id);
+          
+          console.log('✅ Заказ переведен в статус "paid"');
+        } else {
+          console.log(`⚠️ Заказ уже в статусе "${order.status}", пропускаем обновление`);
+        }
+        
+        // Фиксируем транзакцию
+        await client.query('COMMIT');
+        console.log('✅ Транзакция успешно завершена');
+        
+        // ЗДЕСЬ МОЖНО ДОБАВИТЬ:
+        // - Отправку email пользователю
+        // - Уведомление менеджера
+        // - Webhook в CRM
+        
+      } catch (transactionError) {
+        await client.query('ROLLBACK');
+        console.error('❌ Ошибка в транзакции:', transactionError);
+        throw transactionError;
       }
     }
     
+    // ШАГ 3: Обрабатываем отмененный платеж
     if (paymentEvent === 'payment.canceled' || paymentObject.status === 'canceled') {
-      // Платеж отменен
+      console.log('❌ Обработка отмененного платежа...');
+      
       const dbPayment = await paymentModel.findPaymentByYookassaId(paymentObject.id);
       
       if (dbPayment) {
         await paymentModel.updatePaymentStatus(dbPayment.id, 'canceled');
-        console.log(`Платеж ${paymentObject.id} отменен`);
+        console.log('Платеж отменен:', paymentObject.id);
       }
     }
+    
+    // ШАГ 4: Ожидание подтверждения
+    if (paymentEvent === 'payment.waiting_for_capture') {
+      console.log('⏳ Платеж ожидает подтверждения');
+    }
+    
+    console.log('═══════════════════════════════════════');
+    console.log('✅ Webhook обработан успешно');
+    console.log('═══════════════════════════════════════\n');
     
     return { success: true };
     
   } catch (err) {
-    console.error('Ошибка обработки вебхука:', err);
-    throw err;
+    console.error('═══════════════════════════════════════');
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА В WEBHOOK');
+    console.error('═══════════════════════════════════════');
+    console.error('Ошибка:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('═══════════════════════════════════════\n');
+    
+    // Откатываем транзакцию если она была начата
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Ошибка отката:', rollbackError);
+    }
+    
+    return { success: false, error: err.message };
+    
+  } finally {
+    client.release();
   }
 };
 
@@ -251,7 +306,7 @@ const checkAndUpdatePayment = async (orderId) => {
     };
     
   } catch (err) {
-    console.error('Ошибка проверки платежа:', err);
+    console.error('❌ Ошибка проверки платежа:', err);
     throw new AppError('Не удалось проверить статус платежа', 500);
   }
 };

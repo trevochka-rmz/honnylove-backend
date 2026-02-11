@@ -22,6 +22,7 @@ const bannersRoutes = require('./routes/bannersRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const refundRoutes = require('./routes/refundRoutes');
 const passport = require('./config/passport');
 
 
@@ -50,7 +51,7 @@ app.use('/api/banners', bannersRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/payments', paymentRoutes);
-
+app.use('/api/refunds', refundRoutes);
 
 // Глобальный error handler
 app.use(errorHandler);
