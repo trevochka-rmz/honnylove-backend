@@ -24,9 +24,10 @@ const blogRoutes = require('./routes/blogRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const refundRoutes = require('./routes/refundRoutes');
 const passport = require('./config/passport');
+const posRoutes = require('./routes/posRoutes');
 
 
-dotenv.config(); // Загружает .env
+dotenv.config(); 
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/refunds', refundRoutes);
+app.use('/api/pos', posRoutes);
 
 // Глобальный error handler
 app.use(errorHandler);
