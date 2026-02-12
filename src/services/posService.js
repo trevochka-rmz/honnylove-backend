@@ -375,9 +375,73 @@ const previewProductsForCheckout = async (productIds) => {
   }
 };
 
+/**
+ * 👥 ПОЛУЧИТЬ СПИСОК КАССИРОВ
+ * Менеджеры видят только менеджеров
+ * Админы видят менеджеров + админов
+ */
+const getCashiers = async (currentUserRole) => {
+  try {
+    // Проверка роли
+    if (!['manager', 'admin'].includes(currentUserRole)) {
+      throw new AppError('У вас нет прав для просмотра списка кассиров', 403);
+    }
+
+    const cashiers = await posModel.getCashiers(currentUserRole);
+
+    return {
+      success: true,
+      cashiers,
+      total: cashiers.length
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    console.error('Ошибка при получении списка кассиров:', err);
+    throw new AppError('Не удалось получить список кассиров', 500);
+  }
+};
+
+/**
+ * 👤 ПОЛУЧИТЬ ДЕТАЛЬНУЮ ИНФОРМАЦИЮ О КАССИРЕ
+ */
+const getCashierDetails = async (cashierId, currentUserRole) => {
+  try {
+    // Проверка роли
+    if (!['manager', 'admin'].includes(currentUserRole)) {
+      throw new AppError('У вас нет прав для просмотра информации о кассирах', 403);
+    }
+
+    const cashier = await posModel.getCashierById(cashierId);
+
+    if (!cashier) {
+      throw new AppError('Кассир не найден', 404);
+    }
+
+    // Менеджер может видеть только менеджеров
+    if (currentUserRole === 'manager' && cashier.role !== 'manager') {
+      throw new AppError('У вас нет прав для просмотра этого пользователя', 403);
+    }
+
+    return {
+      success: true,
+      cashier
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    console.error('Ошибка при получении информации о кассире:', err);
+    throw new AppError('Не удалось получить информацию о кассире', 500);
+  }
+};
+
 module.exports = {
   createPOSOrder,
   getPOSOrders,
   getSalesStatistics,
-  previewProductsForCheckout
+  previewProductsForCheckout,
+  getCashiers,
+  getCashierDetails
 };

@@ -472,11 +472,101 @@ const getDailySalesStats = async (filters = {}) => {
   return res.rows;
 };
 
+/**
+ * 👥 ПОЛУЧИТЬ СПИСОК КАССИРОВ
+ * В зависимости от роли текущего пользователя:
+ * - manager: только менеджеры
+ * - admin: менеджеры + админы
+ */
+const getCashiers = async (currentUserRole) => {
+  let roleFilter;
+  
+  if (currentUserRole === 'manager') {
+    // Менеджер видит только менеджеров
+    roleFilter = `role = 'manager'`;
+  } else if (currentUserRole === 'admin') {
+    // Админ видит менеджеров и админов
+    roleFilter = `role IN ('manager', 'admin')`;
+  } else {
+    // Другие роли не имеют доступа
+    return [];
+  }
+
+  const res = await db.query(`
+    SELECT 
+      u.id,
+      u.email,
+      u.first_name,
+      u.last_name,
+      u.role,
+      u.phone,
+      u.is_active,
+      u.created_at,
+      
+      -- Статистика по заказам
+      COUNT(DISTINCT o.id) as total_orders,
+      COALESCE(SUM(o.total_amount), 0) as total_revenue,
+      COALESCE(AVG(o.total_amount), 0) as avg_order_value,
+      
+      -- Последний заказ
+      MAX(o.created_at) as last_order_date
+      
+    FROM users u
+    LEFT JOIN orders o ON u.id = o.user_id AND o.notes ILIKE '%[POS]%'
+    WHERE ${roleFilter}
+      AND u.is_active = true
+    GROUP BY u.id
+    ORDER BY u.first_name, u.last_name
+  `);
+
+  return res.rows;
+};
+
+/**
+ * 👤 ПОЛУЧИТЬ ИНФОРМАЦИЮ О КОНКРЕТНОМ КАССИРЕ
+ */
+const getCashierById = async (cashierId) => {
+  const res = await db.query(`
+    SELECT 
+      u.id,
+      u.email,
+      u.first_name,
+      u.last_name,
+      u.role,
+      u.phone,
+      u.is_active,
+      u.created_at,
+      
+      -- Общая статистика
+      COUNT(DISTINCT o.id) as total_orders,
+      COALESCE(SUM(o.total_amount), 0) as total_revenue,
+      COALESCE(AVG(o.total_amount), 0) as avg_order_value,
+      COALESCE(MAX(o.total_amount), 0) as max_order_value,
+      
+      -- По способам оплаты
+      COUNT(CASE WHEN o.payment_method = 'cash' THEN 1 END) as cash_orders,
+      COUNT(CASE WHEN o.payment_method = 'card' THEN 1 END) as card_orders,
+      
+      -- Даты
+      MIN(o.created_at) as first_order_date,
+      MAX(o.created_at) as last_order_date
+      
+    FROM users u
+    LEFT JOIN orders o ON u.id = o.user_id AND o.notes ILIKE '%[POS]%'
+    WHERE u.id = $1
+    GROUP BY u.id
+  `, [cashierId]);
+
+  return res.rows[0] || null;
+};
+
 module.exports = {
   getProductsForCheckout,
   getPOSOrders,
   getPOSOrdersCount,
   getSalesStatistics,
   getTopProducts,
-  getDailySalesStats
+  getDailySalesStats,
+  getCashiers,
+  getCashierById
 };

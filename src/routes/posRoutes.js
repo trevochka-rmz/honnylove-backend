@@ -205,4 +205,71 @@ router.get('/this-month', posController.getThisMonthStats);
  */
 router.get('/cashier/:cashierId/stats', posController.getCashierStats);
 
+// =====================================
+// УПРАВЛЕНИЕ КАССИРАМИ
+// =====================================
+
+/**
+ * Получить список кассиров
+ * GET /api/pos/cashiers
+ * Доступ: Manager, Admin
+ * 
+ * Права доступа:
+ * - Manager: видит только менеджеров
+ * - Admin: видит менеджеров + админов
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "cashiers": [
+ *     {
+ *       "id": 5,
+ *       "email": "manager@shop.com",
+ *       "first_name": "Иван",
+ *       "last_name": "Петров",
+ *       "role": "manager",
+ *       "phone": "+7 999 123-45-67",
+ *       "is_active": true,
+ *       "total_orders": 145,
+ *       "total_revenue": "450000.00",
+ *       "avg_order_value": "3103.45",
+ *       "last_order_date": "2024-02-12T15:30:00Z"
+ *     }
+ *   ],
+ *   "total": 5
+ * }
+ */
+router.get('/cashiers', posController.getCashiers);
+
+/**
+ * Получить детальную информацию о кассире
+ * GET /api/pos/cashiers/:cashierId
+ * Доступ: Manager, Admin
+ * 
+ * Права доступа:
+ * - Manager: может видеть только менеджеров
+ * - Admin: может видеть менеджеров + админов
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "cashier": {
+ *     "id": 5,
+ *     "email": "manager@shop.com",
+ *     "first_name": "Иван",
+ *     "last_name": "Петров",
+ *     "role": "manager",
+ *     "total_orders": 145,
+ *     "total_revenue": "450000.00",
+ *     "avg_order_value": "3103.45",
+ *     "max_order_value": "15000.00",
+ *     "cash_orders": 80,
+ *     "card_orders": 65,
+ *     "first_order_date": "2024-01-01T10:00:00Z",
+ *     "last_order_date": "2024-02-12T15:30:00Z"
+ *   }
+ * }
+ */
+router.get('/cashiers/:cashierId', posController.getCashierDetails);
+
 module.exports = router;

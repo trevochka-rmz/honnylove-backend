@@ -195,6 +195,92 @@ const getCashierStats = async (req, res, next) => {
   }
 };
 
+/**
+ * 👥 Получить список кассиров
+ * @route   GET /api/pos/cashiers
+ * @access  Private (Manager, Admin)
+ * 
+ * @description
+ * Возвращает список кассиров в зависимости от роли:
+ * - Manager: только менеджеры
+ * - Admin: менеджеры + админы
+ * 
+ * @response
+ * {
+ *   "success": true,
+ *   "cashiers": [
+ *     {
+ *       "id": 5,
+ *       "email": "manager@shop.com",
+ *       "first_name": "Иван",
+ *       "last_name": "Петров",
+ *       "role": "manager",
+ *       "phone": "+7 999 123-45-67",
+ *       "is_active": true,
+ *       "total_orders": 145,
+ *       "total_revenue": "450000.00",
+ *       "avg_order_value": "3103.45",
+ *       "last_order_date": "2024-02-12T15:30:00Z"
+ *     }
+ *   ],
+ *   "total": 5
+ * }
+ */
+const getCashiers = async (req, res, next) => {
+  try {
+    const result = await posService.getCashiers(req.user.role);
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * 👤 Получить детальную информацию о кассире
+ * @route   GET /api/pos/cashiers/:cashierId
+ * @access  Private (Manager, Admin)
+ * 
+ * @description
+ * Возвращает подробную информацию о конкретном кассире
+ * 
+ * @response
+ * {
+ *   "success": true,
+ *   "cashier": {
+ *     "id": 5,
+ *     "email": "manager@shop.com",
+ *     "first_name": "Иван",
+ *     "last_name": "Петров",
+ *     "role": "manager",
+ *     "phone": "+7 999 123-45-67",
+ *     "is_active": true,
+ *     "total_orders": 145,
+ *     "total_revenue": "450000.00",
+ *     "avg_order_value": "3103.45",
+ *     "max_order_value": "15000.00",
+ *     "cash_orders": 80,
+ *     "card_orders": 65,
+ *     "first_order_date": "2024-01-01T10:00:00Z",
+ *     "last_order_date": "2024-02-12T15:30:00Z"
+ *   }
+ * }
+ */
+const getCashierDetails = async (req, res, next) => {
+  try {
+    const { cashierId } = req.params;
+
+    const result = await posService.getCashierDetails(
+      parseInt(cashierId, 10),
+      req.user.role
+    );
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   createPOSCheckout,
   getPOSOrders,
@@ -203,5 +289,7 @@ module.exports = {
   getTodayStats,
   getThisWeekStats,
   getThisMonthStats,
-  getCashierStats
+  getCashierStats,
+  getCashiers,
+  getCashierDetails
 };
