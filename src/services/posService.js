@@ -437,11 +437,200 @@ const getCashierDetails = async (cashierId, currentUserRole) => {
   }
 };
 
+/**
+ * 🗑️ УДАЛИТЬ POS ЗАКАЗ
+ */
+const deletePOSOrder = async (orderId, userId, userRole) => {
+  const client = await db.pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Проверяем существование заказа
+    const order = await orderModel.getOrderById(orderId);
+    
+    if (!order) {
+      throw new AppError('Заказ не найден', 404);
+    }
+    
+    // Проверяем что это POS заказ
+    if (!order.notes || !order.notes.includes('[POS]')) {
+      throw new AppError('Это не POS заказ. Используйте обычный API заказов.', 400);
+    }
+    
+    // Проверяем права доступа
+    const isAdmin = userRole === 'admin';
+    const isOwner = order.user_id === userId;
+    
+    if (!isAdmin && !isOwner) {
+      throw new AppError('У вас нет прав для удаления этого заказа', 403);
+    }
+    
+    // Проверяем статус заказа
+    const deletableStatuses = ['pending', 'cancelled'];
+    if (!deletableStatuses.includes(order.status)) {
+      throw new AppError(
+        `Нельзя удалить заказ в статусе "${order.status}". ` +
+        `Удаление возможно только для: ${deletableStatuses.join(', ')}`,
+        400
+      );
+    }
+    
+    // Возвращаем товары на склад если заказ не был отменен
+    if (order.status !== 'cancelled') {
+      for (const item of order.items) {
+        await orderModel.returnInventory(
+          client,
+          item.product_id,
+          item.quantity
+        );
+      }
+    }
+    
+    // Удаляем заказ
+    await orderModel.deleteOrder(client, orderId);
+    
+    await client.query('COMMIT');
+    
+    return {
+      success: true,
+      message: 'POS заказ успешно удален'
+    };
+    
+  } catch (err) {
+    await client.query('ROLLBACK');
+    
+    if (err instanceof AppError) {
+      throw err;
+    }
+    
+    console.error('Ошибка при удалении POS заказа:', err);
+    throw new AppError('Не удалось удалить POS заказ: ' + err.message, 500);
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * ✏️ ОБНОВИТЬ POS ЗАКАЗ
+ */
+const updatePOSOrder = async (orderId, updateData, userId, userRole) => {
+  // Схема валидации для обновления
+  const updateSchema = Joi.object({
+    payment_method: Joi.string().valid('cash', 'card').optional(),
+    discount_amount: Joi.number().min(0).optional(),
+    notes: Joi.string().max(1000).optional().allow(''),
+    customer_name: Joi.string().max(200).optional().allow(''),
+    customer_phone: Joi.string().max(20).optional().allow('')
+  });
+  
+  const { error, value } = updateSchema.validate(updateData);
+  if (error) {
+    throw new AppError(error.details[0].message, 400);
+  }
+  
+  const client = await db.pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Проверяем существование заказа
+    const order = await orderModel.getOrderById(orderId);
+    
+    if (!order) {
+      throw new AppError('Заказ не найден', 404);
+    }
+    
+    // Проверяем что это POS заказ
+    if (!order.notes || !order.notes.includes('[POS]')) {
+      throw new AppError('Это не POS заказ. Используйте обычный API заказов.', 400);
+    }
+    
+    // Проверяем права доступа
+    const isAdmin = userRole === 'admin' || userRole === 'manager';
+    const isOwner = order.user_id === userId;
+    
+    if (!isAdmin && !isOwner) {
+      throw new AppError('У вас нет прав для изменения этого заказа', 403);
+    }
+    
+    // Проверяем статус заказа
+    const editableStatuses = ['pending', 'paid', 'completed'];
+    if (!editableStatuses.includes(order.status)) {
+      throw new AppError(
+        `Нельзя изменить заказ в статусе "${order.status}". ` +
+        `Изменение возможно только для: ${editableStatuses.join(', ')}`,
+        400
+      );
+    }
+    
+    // Обновляем примечания если есть customer_name или customer_phone
+    if (value.customer_name || value.customer_phone) {
+      let notes = order.notes || '[POS]';
+      
+      // Удаляем старые значения
+      notes = notes.replace(/\| Клиент: [^|]+/g, '');
+      notes = notes.replace(/\| Тел: [^|]+/g, '');
+      
+      // Добавляем новые
+      if (value.customer_name) {
+        notes += ` | Клиент: ${value.customer_name}`;
+      }
+      if (value.customer_phone) {
+        notes += ` | Тел: ${value.customer_phone}`;
+      }
+      
+      value.notes = notes.trim();
+      delete value.customer_name;
+      delete value.customer_phone;
+    }
+    
+    // Обновляем заказ
+    const updated = await posModel.updatePOSOrder(client, orderId, value);
+    
+    if (!updated) {
+      throw new AppError('Нет данных для обновления', 400);
+    }
+    
+    // Если изменилась скидка, пересчитываем сумму
+    if (value.discount_amount !== undefined) {
+      await orderModel.recalculateOrderTotal(client, orderId);
+    }
+    
+    await client.query('COMMIT');
+    
+    // Получаем обновленную информацию
+    const fullOrder = await orderModel.getOrderById(orderId);
+    
+    return {
+      success: true,
+      message: 'POS заказ успешно обновлен',
+      data: {
+        order: fullOrder
+      }
+    };
+    
+  } catch (err) {
+    await client.query('ROLLBACK');
+    
+    if (err instanceof AppError) {
+      throw err;
+    }
+    
+    console.error('Ошибка при обновлении POS заказа:', err);
+    throw new AppError('Не удалось обновить POS заказ: ' + err.message, 500);
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   createPOSOrder,
   getPOSOrders,
   getSalesStatistics,
   previewProductsForCheckout,
   getCashiers,
-  getCashierDetails
+  getCashierDetails,
+  deletePOSOrder,
+  updatePOSOrder
 };

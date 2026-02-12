@@ -117,6 +117,55 @@ router.post('/preview', posController.previewProducts);
  */
 router.get('/orders', posController.getPOSOrders);
 
+/**
+ * Обновить POS заказ (чек)
+ * PUT /api/pos/orders/:orderId
+ * Доступ: Manager, Admin (владелец заказа)
+ * 
+ * Body:
+ * {
+ *   "payment_method": "card",          // опционально: cash или card
+ *   "discount_amount": 150,            // опционально
+ *   "customer_name": "Новое имя",      // опционально
+ *   "customer_phone": "+7 999 888",    // опционально
+ *   "notes": "Дополнительные заметки"  // опционально
+ * }
+ * 
+ * Ограничения:
+ * - Можно изменить только заказы в статусе: pending, paid, completed
+ * - Нельзя изменять товары в заказе
+ * - При изменении скидки автоматически пересчитывается сумма
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "POS заказ успешно обновлен",
+ *   "data": {
+ *     "order": { ... полная информация о заказе }
+ *   }
+ * }
+ */
+router.put('/orders/:orderId', posController.updatePOSOrder);
+
+/**
+ * Удалить POS заказ (чек)
+ * DELETE /api/pos/orders/:orderId
+ * Доступ: Manager, Admin (владелец заказа)
+ * 
+ * Ограничения:
+ * - Можно удалить только заказы в статусе: pending, cancelled
+ * - Товары автоматически возвращаются на склад (если заказ не был отменен)
+ * - Админ может удалить любой POS заказ
+ * - Менеджер может удалить только свой заказ
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "POS заказ успешно удален"
+ * }
+ */
+router.delete('/orders/:orderId', posController.deletePOSOrder);
+
 // =====================================
 // СТАТИСТИКА
 // =====================================

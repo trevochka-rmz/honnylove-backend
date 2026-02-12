@@ -560,6 +560,72 @@ const getCashierById = async (cashierId) => {
   return res.rows[0] || null;
 };
 
+/**
+ * 🗑️ УДАЛИТЬ POS ЗАКАЗ
+ * Удаляет заказ и возвращает товары на склад
+ */
+const deletePOSOrder = async (client, orderId) => {
+  // Удаление происходит через orderModel
+  // Здесь только валидация что это POS заказ
+  const res = await client.query(`
+    SELECT id, notes FROM orders WHERE id = $1
+  `, [orderId]);
+  
+  if (res.rowCount === 0) {
+    return null;
+  }
+  
+  const order = res.rows[0];
+  
+  // Проверяем что это POS заказ
+  if (!order.notes || !order.notes.includes('[POS]')) {
+    throw new Error('Это не POS заказ');
+  }
+  
+  return order;
+};
+
+/**
+ * ✏️ ОБНОВИТЬ POS ЗАКАЗ
+ * Обновляет данные заказа
+ */
+const updatePOSOrder = async (client, orderId, updateData) => {
+  const allowedFields = [
+    'payment_method',
+    'discount_amount',
+    'notes'
+  ];
+  
+  const updates = [];
+  const values = [];
+  let paramCount = 1;
+  
+  Object.keys(updateData).forEach(key => {
+    if (allowedFields.includes(key) && updateData[key] !== undefined) {
+      updates.push(`${key} = $${paramCount}`);
+      values.push(updateData[key]);
+      paramCount++;
+    }
+  });
+  
+  if (updates.length === 0) {
+    return null;
+  }
+  
+  updates.push(`updated_at = CURRENT_TIMESTAMP`);
+  values.push(orderId);
+  
+  const res = await client.query(`
+    UPDATE orders
+    SET ${updates.join(', ')}
+    WHERE id = $${paramCount}
+      AND notes ILIKE '%[POS]%'
+    RETURNING *
+  `, values);
+  
+  return res.rows[0] || null;
+};
+
 module.exports = {
   getProductsForCheckout,
   getPOSOrders,
@@ -568,5 +634,7 @@ module.exports = {
   getTopProducts,
   getDailySalesStats,
   getCashiers,
-  getCashierById
+  getCashierById,
+  deletePOSOrder,
+  updatePOSOrder
 };

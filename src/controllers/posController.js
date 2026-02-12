@@ -281,6 +281,89 @@ const getCashierDetails = async (req, res, next) => {
   }
 };
 
+/**
+ * 🗑️ Удалить POS заказ (чек)
+ * @route   DELETE /api/pos/orders/:orderId
+ * @access  Private (Manager, Admin, Owner)
+ * 
+ * @description
+ * Удаляет POS заказ и возвращает товары на склад
+ * 
+ * Ограничения:
+ * - Можно удалить только заказы в статусе: pending, cancelled
+ * - Админ может удалить любой POS заказ
+ * - Менеджер может удалить только свой заказ
+ * 
+ * @response
+ * {
+ *   "success": true,
+ *   "message": "POS заказ успешно удален"
+ * }
+ */
+const deletePOSOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    
+    const result = await posService.deletePOSOrder(
+      parseInt(orderId, 10),
+      req.user.id,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * ✏️ Обновить POS заказ (чек)
+ * @route   PUT /api/pos/orders/:orderId
+ * @access  Private (Manager, Admin, Owner)
+ * 
+ * @description
+ * Обновляет данные POS заказа
+ * 
+ * @body
+ * {
+ *   "payment_method": "card",          // опционально: cash или card
+ *   "discount_amount": 150,            // опционально
+ *   "customer_name": "Новое имя",      // опционально
+ *   "customer_phone": "+7 999 888",    // опционально
+ *   "notes": "Обновленные примечания"  // опционально
+ * }
+ * 
+ * Ограничения:
+ * - Можно изменить только заказы в статусе: pending, paid, completed
+ * - Нельзя изменять товары в заказе (используйте admin/orders API)
+ * - При изменении скидки автоматически пересчитывается сумма
+ * 
+ * @response
+ * {
+ *   "success": true,
+ *   "message": "POS заказ успешно обновлен",
+ *   "data": {
+ *     "order": { ... }
+ *   }
+ * }
+ */
+const updatePOSOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    
+    const result = await posService.updatePOSOrder(
+      parseInt(orderId, 10),
+      req.body,
+      req.user.id,
+      req.user.role
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   createPOSCheckout,
   getPOSOrders,
@@ -291,5 +374,7 @@ module.exports = {
   getThisMonthStats,
   getCashierStats,
   getCashiers,
-  getCashierDetails
+  getCashierDetails,
+  deletePOSOrder,
+  updatePOSOrder
 };
