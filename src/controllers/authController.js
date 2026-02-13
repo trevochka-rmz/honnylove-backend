@@ -15,7 +15,25 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const result = await authService.loginUser(req.body);
-    res.json(result);
+    
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 15 * 60 * 1000
+    });
+
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({ 
+      user: result.user,
+      message: 'Login successful'
+    });
   } catch (err) {
     next(err);
   }
@@ -25,7 +43,25 @@ const login = async (req, res, next) => {
 const adminLogin = async (req, res, next) => {
   try {
     const result = await authService.adminLogin(req.body);
-    res.json(result);
+    
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 15 * 60 * 1000
+    });
+
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({ 
+      user: result.user,
+      message: 'Admin login successful'
+    });
   } catch (err) {
     next(err);
   }
@@ -34,8 +70,22 @@ const adminLogin = async (req, res, next) => {
 // Обновить токен
 const refresh = async (req, res, next) => {
   try {
-    const result = await authService.refreshToken(req.body.refreshToken);
-    res.json(result);
+    const refreshToken = req.cookies.refreshToken;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'Refresh token не найден' });
+    }
+
+    const result = await authService.refreshToken(refreshToken);
+    
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 15 * 60 * 1000
+    });
+
+    res.json({ message: 'Token refreshed successfully' });
   } catch (err) {
     next(err);
   }

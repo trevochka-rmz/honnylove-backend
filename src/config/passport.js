@@ -11,15 +11,11 @@ passport.use(new GoogleStrategy({
   scope: ['profile', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
-    const user = await authService.loginWithGoogle(profile);
-    done(null, user);
+    const result = await authService.loginWithGoogle(profile);
+    done(null, result);
   } catch (err) {
     done(err);
   }
 }));
-
-// Serialize/Deserialize
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((obj, done) => done(null, obj));
 
 module.exports = passport;

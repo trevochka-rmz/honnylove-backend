@@ -40,12 +40,7 @@ router.post('/login', authController.login);
 /**
  * Обновить access token
  * POST /api/auth/refresh
- * Доступ: Публичный (с refresh token)
- *
- * Body:
- * {
- * "refreshToken": "Токен" (обязательно)
- * }
+ * Доступ: Публичный (с refresh token в cookie)
  */
 router.post('/refresh', authController.refresh);
 
@@ -94,34 +89,49 @@ router.post('/password/reset/confirm', authController.confirmPasswordReset);
  * OAuth Google: Запуск авторизации
  * GET /api/auth/google
  */
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google', passport.authenticate('google', { 
+  scope: ['profile', 'email'],
+  session: false
+}));
 
 /**
  * OAuth Google: Callback
  * GET /api/auth/google/callback
- * После успеха redirect на фронт с токенами (нужно настроить на фронте)
  */
-router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/login?error=auth_failed' }), (req, res) => {
-  const { accessToken, refreshToken } = req.user; // Из strategy
+router.get('/google/callback', 
+  passport.authenticate('google', { 
+    failureRedirect: `${process.env.FRONTEND_URL}/login?error=auth_failed`,
+    session: false
+  }), 
+  (req, res) => {
+    const { accessToken, refreshToken } = req.user;
 
-  // Установите accessToken в cookie (не HttpOnly, чтобы фронт мог читать для API запросов)
-  res.cookie('accessToken', accessToken, {
-    httpOnly: false, // Доступен для JS
-    secure: true,    // Только HTTPS
-    sameSite: 'Strict',
-    maxAge: 15 * 60 * 1000 // 15 мин, как access token
-  });
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      maxAge: 15 * 60 * 1000
+    });
 
-  // Установите refreshToken в HttpOnly cookie (для безопасности)
-  res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,  // Не доступен для JS (защита от XSS)
-    secure: true,
-    sameSite: 'Strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 дней, как refresh
-  });
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
 
-  // Redirect на фронт (без params)
-  res.redirect(`${process.env.FRONTEND_URL}/profile`); // Или /, в зависимости от UX
+    res.redirect(`${process.env.FRONTEND_URL}/profile`);
+  }
+);
+
+/**
+ * Logout - очистка cookies
+ * POST /api/auth/logout
+ */
+router.post('/logout', (req, res) => {
+  res.clearCookie('accessToken');
+  res.clearCookie('refreshToken');
+  res.json({ message: 'Logged out successfully' });
 });
 
 module.exports = router;
