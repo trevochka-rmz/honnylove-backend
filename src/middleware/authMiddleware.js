@@ -1,13 +1,26 @@
 // src/middleware/authMiddleware.js
+
 const { verifyToken } = require('../utils/jwtUtils');
 
 const authenticate = (req, res, next) => {
-  let token = req.cookies?.accessToken;
-  
-  if (!token) {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
+  // Определяем, это админка или основной сайт
+  const isAdminHost = 
+    req.hostname === 'admin.honnylove.ru' || 
+    req.headers.host?.includes('admin.honnylove.ru');
+
+  let token;
+
+  if (isAdminHost) {
+    token = req.cookies?.admin_accessToken;
+    // fallback на Authorization header (если фронт админки шлёт Bearer)
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+  } else {
+    // обычный сайт — как было раньше
+    token = req.cookies?.accessToken;
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
     }
   }
 

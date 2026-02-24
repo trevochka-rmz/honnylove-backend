@@ -34,6 +34,8 @@ const getUserByEmail = async (email) => {
 // Создать нового пользователя
 const createUser = async (data) => {
   data.discount_percentage = data.discount_percentage ?? 0.0;
+  data.is_verified = data.is_verified ?? false;
+  
   const {
     username,
     email,
@@ -44,10 +46,12 @@ const createUser = async (data) => {
     phone,
     address,
     discount_percentage,
+    is_verified,
   } = data;
+  
   const { rows } = await db.query(
-    `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, address, discount_percentage)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    `INSERT INTO users (username, email, password_hash, role, first_name, last_name, phone, address, discount_percentage, is_verified)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [
       username,
       email,
@@ -58,6 +62,7 @@ const createUser = async (data) => {
       phone,
       address,
       discount_percentage,
+      is_verified,
     ]
   );
   return rows[0];
@@ -163,8 +168,8 @@ const getUserProfile = async (id) => {
 
 // Генерация verification code (6 цифр, expires in 15 min)
 const generateVerificationCode = async (userId) => {
-  const code = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 символов
-  const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 мин
+  const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const expires = new Date(Date.now() + 15 * 60 * 1000);
   await updateUser(userId, { verification_code: code, verification_expires: expires });
   return code;
 };
@@ -210,30 +215,35 @@ const getUserByGoogleId = async (googleId) => {
 const createUserFromOAuth = async (profile, provider) => {
   let email = profile.emails[0].value;
   let username = profile.displayName || email.split('@')[0];
-  let first_name = profile.name.givenName;
-  let last_name = profile.name.familyName;
+  let first_name = profile.name?.givenName || '';
+  let last_name = profile.name?.familyName || '';
+  
   const existing = await getUserByEmail(email);
   if (existing) {
-    // Связываем с существующим
     if (provider === 'google') {
-      await updateUser(existing.id, { google_id: profile.id });
+      await updateUser(existing.id, { 
+        google_id: profile.id,
+        is_verified: true
+      });
     }
-    return existing;
+    return getUserById(existing.id);
   }
-  // Создаём нового без пароля (password_hash null или empty)
+  
   const newUser = await createUser({
     username,
     email,
-    password_hash: null, 
+    password_hash: '',
     role: 'customer',
     first_name,
     last_name,
-    is_verified: true, 
+    is_verified: true,
   });
+  
   if (provider === 'google') {
     await updateUser(newUser.id, { google_id: profile.id });
   }
-  return newUser;
+  
+  return getUserById(newUser.id);
 };
 
 module.exports = {

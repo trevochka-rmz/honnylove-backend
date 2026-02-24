@@ -43,22 +43,25 @@ const login = async (req, res, next) => {
 const adminLogin = async (req, res, next) => {
   try {
     const result = await authService.adminLogin(req.body);
-    
-    res.cookie('accessToken', result.accessToken, {
+
+    // ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
+    // Главное изменение здесь:
+    res.cookie('admin_accessToken', result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
       maxAge: 15 * 60 * 1000
     });
 
-    res.cookie('refreshToken', result.refreshToken, {
+    res.cookie('admin_refreshToken', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
+    // ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
 
-    res.json({ 
+    res.json({
       user: result.user,
       message: 'Admin login successful'
     });
@@ -70,20 +73,31 @@ const adminLogin = async (req, res, next) => {
 // Обновить токен
 const refresh = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
-    
+    const isAdminHost = 
+      req.hostname === 'admin.honnylove.ru' || 
+      req.headers.host?.includes('admin.honnylove.ru');
+
+    const refreshToken = isAdminHost 
+      ? req.cookies.admin_refreshToken 
+      : req.cookies.refreshToken;
+
     if (!refreshToken) {
       return res.status(401).json({ error: 'Refresh token не найден' });
     }
 
     const result = await authService.refreshToken(refreshToken);
-    
-    res.cookie('accessToken', result.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      maxAge: 15 * 60 * 1000
-    });
+
+    // Ставим новый access-токен с правильным именем
+    if (isAdminHost) {
+      res.cookie('admin_accessToken', result.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        maxAge: 15 * 60 * 1000
+      });
+    } else {
+      res.cookie('accessToken', result.accessToken, { /* старые настройки */ });
+    }
 
     res.json({ message: 'Token refreshed successfully' });
   } catch (err) {

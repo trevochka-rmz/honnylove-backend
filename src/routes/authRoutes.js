@@ -120,7 +120,7 @@ router.get('/google/callback',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    res.redirect(`${process.env.FRONTEND_URL}/profile`);
+    res.redirect(`${process.env.FRONTEND_URL}/auth/google/callback`);
   }
 );
 
@@ -129,8 +129,17 @@ router.get('/google/callback',
  * POST /api/auth/logout
  */
 router.post('/logout', (req, res) => {
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken');
+  const isAdminHost = req.hostname === 'admin.honnylove.ru' || 
+                      req.headers.host?.includes('admin.honnylove.ru');
+
+  if (isAdminHost) {
+    res.clearCookie('admin_accessToken');
+    res.clearCookie('admin_refreshToken');
+  } else {
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken');
+  }
+
   res.json({ message: 'Logged out successfully' });
 });
 
