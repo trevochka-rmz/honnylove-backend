@@ -90,10 +90,10 @@ const deleteUser = async (id) => {
   await db.query('DELETE FROM users WHERE id = $1', [id]);
 };
 
-// Обновить refresh_token пользователя
-const updateRefreshToken = async (id, token) => {
-  return updateUser(id, { refresh_token: token });
-};
+// // Обновить refresh_token пользователя
+// const updateRefreshToken = async (id, token) => {
+//   return updateUser(id, { refresh_token: token });
+// };
 
 // Получить всех пользователей с пагинацией и фильтром по роли
 const getAllUsers = async ({ page = 1, limit = 10, role }) => {
@@ -254,7 +254,7 @@ module.exports = {
   createUser,
   updateUser,
   deleteUser,
-  updateRefreshToken,
+  // updateRefreshToken,
   getAllUsers,
   getUserProfile,
   generateVerificationCode,

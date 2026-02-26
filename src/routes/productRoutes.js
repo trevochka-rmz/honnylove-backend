@@ -40,15 +40,6 @@ router.get('/', (req, res, next) =>
  */
 router.get('/search', productController.searchProducts);
 
-/**
- * Получить продукт по идентификатору (id или slug)
- * GET /api/products/:identifier
- * Доступ: Публичный
- */
-router.get('/:identifier', (req, res, next) =>
-  productController.getProductByIdentifier(req, res, next, false)
-);
-
 // АДМИНСКИЕ МАРШРУТЫ
 
 /**
@@ -183,6 +174,16 @@ router.get(
   authenticate,
   requireRole(['admin']),
   productExportController.exportProductsToCSV
+);
+
+// Публичный
+/**
+ * Получить продукт по идентификатору (id или slug)
+ * GET /api/products/:identifier
+ * Доступ: Публичный
+ */
+router.get('/:identifier', (req, res, next) =>
+  productController.getProductByIdentifier(req, res, next, false)
 );
 
 module.exports = router;

@@ -401,7 +401,7 @@ const createAdminOrder = async (adminUserId, orderData) => {
     });
 
     // 6. Добавляем товары в заказ и списываем со склада
-    for (const { item } of inventoryChecks) {
+    for (const item of items) {
       await orderModel.addOrderItem(client, {
         order_id: newOrder.id,
         product_id: item.id,

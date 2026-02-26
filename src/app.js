@@ -5,6 +5,8 @@ const dotenv = require('dotenv');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const errorHandler = require('./middleware/errorHandler');
+const cron = require('node-cron'); 
+
 // Routes
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -25,6 +27,9 @@ const refundRoutes = require('./routes/refundRoutes');
 const passport = require('./config/passport');
 const posRoutes = require('./routes/posRoutes');
 
+// ✅ НОВОЕ: Импортируем модель для очистки токенов
+const refreshTokenModel = require('./models/refreshTokenModel');
+
 dotenv.config(); 
 
 const app = express();
@@ -37,7 +42,6 @@ app.use(cors({
       ? process.env.CORS_ORIGINS.split(',') 
       : ['http://localhost:3000', 'https://honnylove.ru', 'https://admin.honnylove.ru'];
     
-    // Разрешить запросы с этих доменов или без origin
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -50,12 +54,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 app.use(passport.initialize());
-
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Routes под /api
@@ -80,10 +81,58 @@ app.use('/api/pos', posRoutes);
 // Глобальный error handler
 app.use(errorHandler);
 
-// Запуск сервера
+// =====================================
+// ✅ НОВОЕ: АВТОМАТИЧЕСКАЯ ОЧИСТКА ИСТЁКШИХ ТОКЕНОВ С CRON
+// =====================================
+
+/**
+ * Функция для очистки истёкших refresh токенов
+ */
+const cleanupExpiredTokens = async () => {
+  try {
+    const deleted = await refreshTokenModel.deleteExpiredTokens();
+    const timestamp = new Date().toLocaleString('ru-RU', { 
+      timeZone: 'Asia/Ho_Chi_Minh' 
+    });
+    console.log(`[${timestamp}] [Cleanup] Удалено истёкших токенов: ${deleted}`);
+  } catch (error) {
+    console.error('[Cleanup] Ошибка при очистке токенов:', error);
+  }
+};
+
+// Запускаем очистку при старте сервера
+cleanupExpiredTokens();
+
+cron.schedule('0 3 * * *', () => {
+  console.log('[Cron] Запуск плановой очистки истёкших токенов...');
+  cleanupExpiredTokens();
+}, {
+  timezone: "Asia/Ho_Chi_Minh" // Указываем твоё время
+});
+
+console.log('[Cron] Автоматическая очистка токенов активирована (каждый день в 3:00 AM)');
+
+// =====================================
+// ЗАПУСК СЕРВЕРА
+// =====================================
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(
     `Server running on port ${PORT} in ${process.env.NODE_ENV} mode`
   );
+});
+
+// =====================================
+// GRACEFUL SHUTDOWN
+// =====================================
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM получен. Завершаю работу...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT получен. Завершаю работу...');
+  process.exit(0);
 });

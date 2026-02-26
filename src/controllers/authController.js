@@ -1,7 +1,20 @@
 // src/controllers/authController.js
 const authService = require('../services/authService');
 
-// Регистрация нового пользователя
+/**
+ * Вспомогательная функция для получения информации об устройстве
+ */
+const getDeviceInfo = (req) => {
+  return {
+    ipAddress: req.ip || req.connection.remoteAddress,
+    userAgent: req.headers['user-agent'],
+    deviceName: req.body.deviceName || null, // Фронт может передать название устройства
+  };
+};
+
+/**
+ * Регистрация нового пользователя
+ */
 const register = async (req, res, next) => {
   try {
     const result = await authService.registerUser(req.body);
@@ -11,23 +24,27 @@ const register = async (req, res, next) => {
   }
 };
 
-// Логин пользователя
+/**
+ * Логин пользователя
+ */
 const login = async (req, res, next) => {
   try {
-    const result = await authService.loginUser(req.body);
+    const deviceInfo = getDeviceInfo(req);
+    const result = await authService.loginUser(req.body, deviceInfo);
     
+    // Устанавливаем cookies
     res.cookie('accessToken', result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 15 * 60 * 1000
+      maxAge: 15 * 60 * 1000, // 15 минут
     });
 
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
     });
 
     res.json({ 
@@ -39,27 +56,30 @@ const login = async (req, res, next) => {
   }
 };
 
-// Логин администратора
+/**
+ * Логин администратора
+ */
 const adminLogin = async (req, res, next) => {
   try {
-    const result = await authService.adminLogin(req.body);
+    const deviceInfo = getDeviceInfo(req);
+    const result = await authService.adminLogin(req.body, deviceInfo);
 
-    // ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
-    // Главное изменение здесь:
+    // Устанавливаем cookies с префиксом admin_
     res.cookie('admin_accessToken', result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 15 * 60 * 1000
+      maxAge: 15 * 60 * 1000,
+      path: '/', // Важно! Делаем доступным для всего домена
     });
 
     res.cookie('admin_refreshToken', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
     });
-    // ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
 
     res.json({
       user: result.user,
@@ -70,9 +90,12 @@ const adminLogin = async (req, res, next) => {
   }
 };
 
-// Обновить токен
+/**
+ * Обновить токен
+ */
 const refresh = async (req, res, next) => {
   try {
+    // Определяем, это админка или основной сайт
     const isAdminHost = 
       req.hostname === 'admin.honnylove.ru' || 
       req.headers.host?.includes('admin.honnylove.ru');
@@ -87,16 +110,22 @@ const refresh = async (req, res, next) => {
 
     const result = await authService.refreshToken(refreshToken);
 
-    // Ставим новый access-токен с правильным именем
+    // Устанавливаем новый access token
     if (isAdminHost) {
       res.cookie('admin_accessToken', result.accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'Strict',
-        maxAge: 15 * 60 * 1000
+        maxAge: 15 * 60 * 1000,
+        path: '/',
       });
     } else {
-      res.cookie('accessToken', result.accessToken, { /* старые настройки */ });
+      res.cookie('accessToken', result.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        maxAge: 15 * 60 * 1000,
+      });
     }
 
     res.json({ message: 'Token refreshed successfully' });
@@ -105,7 +134,80 @@ const refresh = async (req, res, next) => {
   }
 };
 
-// Запрос верификации
+/**
+ * Logout - выход с текущего устройства
+ */
+const logout = async (req, res, next) => {
+  try {
+    const isAdminHost = 
+      req.hostname === 'admin.honnylove.ru' || 
+      req.headers.host?.includes('admin.honnylove.ru');
+
+    const refreshToken = isAdminHost 
+      ? req.cookies.admin_refreshToken 
+      : req.cookies.refreshToken;
+
+    // Удаляем refresh token из БД
+    if (refreshToken) {
+      await authService.logout(refreshToken);
+    }
+
+    // Очищаем cookies
+    if (isAdminHost) {
+      res.clearCookie('admin_accessToken', { path: '/' });
+      res.clearCookie('admin_refreshToken', { path: '/' });
+    } else {
+      res.clearCookie('accessToken');
+      res.clearCookie('refreshToken');
+    }
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Logout со всех устройств
+ */
+const logoutAll = async (req, res, next) => {
+  try {
+    await authService.logoutAll(req.user.id);
+    
+    const isAdminHost = 
+      req.hostname === 'admin.honnylove.ru' || 
+      req.headers.host?.includes('admin.honnylove.ru');
+
+    // Очищаем cookies на текущем устройстве
+    if (isAdminHost) {
+      res.clearCookie('admin_accessToken', { path: '/' });
+      res.clearCookie('admin_refreshToken', { path: '/' });
+    } else {
+      res.clearCookie('accessToken');
+      res.clearCookie('refreshToken');
+    }
+
+    res.json({ message: 'Logged out from all devices successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Получить активные сессии
+ */
+const getActiveSessions = async (req, res, next) => {
+  try {
+    const sessions = await authService.getActiveSessions(req.user.id);
+    res.json(sessions);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Запрос верификации
+ */
 const requestVerification = async (req, res, next) => {
   try {
     const result = await authService.requestVerification(req.body.email);
@@ -115,7 +217,9 @@ const requestVerification = async (req, res, next) => {
   }
 };
 
-// Подтвердить email
+/**
+ * Подтвердить email
+ */
 const verifyEmail = async (req, res, next) => {
   try {
     const result = await authService.verifyEmail(req.body.email, req.body.code);
@@ -125,7 +229,9 @@ const verifyEmail = async (req, res, next) => {
   }
 };
 
-// Запрос сброса пароля
+/**
+ * Запрос сброса пароля
+ */
 const requestPasswordReset = async (req, res, next) => {
   try {
     const result = await authService.requestPasswordReset(req.body.email);
@@ -135,7 +241,9 @@ const requestPasswordReset = async (req, res, next) => {
   }
 };
 
-// Подтвердить сброс пароля
+/**
+ * Подтвердить сброс пароля
+ */
 const confirmPasswordReset = async (req, res, next) => {
   try {
     const result = await authService.confirmPasswordReset(req.body);
@@ -150,6 +258,9 @@ module.exports = {
   login, 
   refresh, 
   adminLogin,
+  logout,
+  logoutAll,
+  getActiveSessions,
   requestVerification,
   verifyEmail,
   requestPasswordReset,
