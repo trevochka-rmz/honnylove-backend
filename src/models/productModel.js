@@ -3,7 +3,7 @@ const db = require('../config/db');
 const { uploadImage, deleteEntityImages, deleteImageByUrl, uploadProductGalleryImages, deleteProductGallery } = require('../utils/s3Uploader');
 
 // Получить все продукты с пагинацией и фильтрами
-// Теперь с улучшенным полнотекстовым поиском по русскому языку
+// Улучшенный полнотекстовый поиск с поддержкой русского языка
 const getAllProducts = async ({
     page = 1,
     limit = 9,
@@ -53,13 +53,14 @@ const getAllProducts = async ({
     }
 
     // ====================== УЛУЧШЕННЫЙ ПОЛНОТЕКСТОВЫЙ ПОИСК ======================
+    // Используем ТОЛЬКО те колонки, которые реально существуют в product_view и admin_product_view
     let searchCondition = '';
     let rankExpression = '1'; // по умолчанию без ранжирования
 
     if (search && search.trim()) {
         const searchTerm = search.trim();
 
-        // Полнотекстовый поиск по ВСЕМ важным полям с поддержкой русского языка
+        // Полнотекстовый поиск по всем доступным полям
         searchCondition = `
             to_tsvector('russian', 
                 COALESCE(name, '') || ' ' ||
@@ -69,19 +70,22 @@ const getAllProducts = async ({
                 COALESCE(sku, '') || ' ' ||
                 COALESCE(skin_type, '') || ' ' ||
                 COALESCE(target_audience, '') || ' ' ||
-                COALESCE(attributes::text, '')
+                COALESCE(ingredients, '') || ' ' ||
+                COALESCE(usage, '') || ' ' ||
+                COALESCE(variants::text, '')
             ) @@ plainto_tsquery('russian', $${params.length + 1})
         `;
         params.push(searchTerm);
 
-        // Ранжирование по релевантности (чем точнее совпадение — тем выше в результатах)
+        // Ранжирование по релевантности (используем основные поля)
         rankExpression = `
             ts_rank(
                 to_tsvector('russian', 
                     COALESCE(name, '') || ' ' || 
                     COALESCE(description, '') || ' ' ||
                     COALESCE(brand, '') || ' ' || 
-                    COALESCE(sku, '')
+                    COALESCE(sku, '') || ' ' ||
+                    COALESCE(ingredients, '')
                 ),
                 plainto_tsquery('russian', $${params.length})
             )
@@ -165,7 +169,7 @@ const getAllProducts = async ({
             secondarySort = 'id DESC';
     }
 
-    // Если идёт поиск — всегда добавляем ранжирование по релевантности
+    // Если идёт поиск — всегда добавляем ранжирование по релевантности + наличие сверху
     const fullOrderBy = search
         ? ` ORDER BY "inStock" DESC, ${rankExpression} DESC, ${secondarySort}`
         : ` ORDER BY "inStock" DESC, ${secondarySort}`;
@@ -388,12 +392,11 @@ const deleteProduct = async (id) => {
     await db.query('DELETE FROM product_products WHERE id = $1', [id]);
 };
 
-// Поиск продуктов (улучшенная версия с пагинацией и релевантностью)
+// Поиск продуктов (улучшенная версия)
 const searchProducts = async (query, page = 1, limit = 20) => {
     if (!query || !query.trim()) {
         return { products: [], total: 0, page: 1, pages: 0, limit, hasMore: false };
     }
-    // Используем основной метод с режимом relevance
     return getAllProducts({
         search: query.trim(),
         page,
