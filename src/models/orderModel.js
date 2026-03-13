@@ -58,37 +58,28 @@ const createOrder = async (client, orderData) => {
     tax_amount = 0, 
     discount_amount = 0, 
     notes = '',
-    tracking_number = null
+    tracking_number = null,
+    customer_first_name = null, 
+    customer_last_name  = null,  
+    customer_phone      = null,  
   } = orderData;
   
   const res = await client.query(`
     INSERT INTO orders (
-      user_id, 
-      status, 
-      total_amount, 
-      shipping_address, 
-      payment_method, 
-      shipping_cost, 
-      tax_amount, 
-      discount_amount, 
-      notes,
-      tracking_number,
-      created_at,
-      updated_at
+      user_id, status, total_amount, shipping_address, payment_method,
+      shipping_cost, tax_amount, discount_amount, notes, tracking_number,
+      customer_first_name, customer_last_name, customer_phone,
+      created_at, updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
     RETURNING *
   `, [
-    user_id, 
-    'pending',
-    total_amount, 
-    shipping_address, 
-    payment_method, 
-    shipping_cost, 
-    tax_amount, 
-    discount_amount, 
-    notes,
-    tracking_number
+    user_id, 'pending', total_amount, shipping_address, payment_method,
+    shipping_cost, tax_amount, discount_amount, notes, tracking_number,
+    customer_first_name, customer_last_name, customer_phone,
   ]);
   
   return res.rows[0];

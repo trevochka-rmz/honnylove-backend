@@ -1,6 +1,7 @@
 // src/services/orderService.js 
 const Joi = require('joi');
 const db = require('../config/db');
+const telegramService = require('./telegramService');
 const orderModel = require('../models/orderModel');
 const AppError = require('../utils/errorUtils');
 
@@ -66,7 +67,25 @@ const checkoutSchema = Joi.object({
     .messages({
       'array.min': 'Выберите хотя бы один товар для оформления',
       'any.required': 'Не указаны товары для оформления'
-    })
+    }),
+    customer_first_name: Joi.string().min(2).max(100).required()
+    .messages({
+      'string.empty': 'Укажите имя получателя',
+      'string.min': 'Имя должно содержать минимум 2 символа',
+      'any.required': 'Имя получателя обязательно'
+    }),
+  customer_last_name: Joi.string().min(2).max(100).required()
+    .messages({
+      'string.empty': 'Укажите фамилию получателя',
+      'string.min': 'Фамилия должна содержать минимум 2 символа',
+      'any.required': 'Фамилия получателя обязательна'
+    }),
+  customer_phone: Joi.string().min(10).max(20).required()
+    .messages({
+      'string.empty': 'Укажите телефон получателя',
+      'string.min': 'Некорректный номер телефона',
+      'any.required': 'Телефон получателя обязателен'
+    }),
 });
 
 // Схема для обновления заказа
@@ -118,6 +137,37 @@ const createOrder = async (userId, orderData) => {
   try {
     await client.query('BEGIN');
     
+    // Проверяем текущие данные пользователя в профиле
+    const userRes = await client.query(
+      'SELECT first_name, last_name, phone FROM users WHERE id = $1',
+      [userId]
+    );
+    const currentUser = userRes.rows[0] || {};
+
+    // Обновляем профиль ТОЛЬКО по пустым полям
+    // Если поле уже заполнено — не трогаем его
+    const shouldUpdateFirstName = !currentUser.first_name;
+    const shouldUpdateLastName  = !currentUser.last_name;
+    const shouldUpdatePhone     = !currentUser.phone;
+
+    if (shouldUpdateFirstName || shouldUpdateLastName || shouldUpdatePhone) {
+      await client.query(`
+        UPDATE users SET
+          first_name = CASE WHEN first_name IS NULL OR first_name = '' 
+                      THEN $1 ELSE first_name END,
+          last_name  = CASE WHEN last_name IS NULL OR last_name = '' 
+                      THEN $2 ELSE last_name END,
+          phone      = CASE WHEN phone IS NULL OR phone = '' 
+                      THEN $3 ELSE phone END,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+      `, [
+        value.customer_first_name,
+        value.customer_last_name,
+        value.customer_phone,
+        userId
+      ]);
+    }
     // Получаем ТОЛЬКО выбранные товары из корзины
     const cartItems = await orderModel.getSelectedCartItemsWithDetails(
       client, 
@@ -186,7 +236,10 @@ const createOrder = async (userId, orderData) => {
       shipping_cost: value.shipping_cost,
       tax_amount: value.tax_amount,
       discount_amount: value.discount_amount,
-      notes: value.notes || ''
+      notes: value.notes || '',
+      customer_first_name: value.customer_first_name,  
+      customer_last_name:  value.customer_last_name,   
+      customer_phone:      value.customer_phone,  
     });
     
     // Добавляем товары в заказ и списываем со склада
@@ -217,6 +270,11 @@ const createOrder = async (userId, orderData) => {
     // Получаем полную информацию о созданном заказе
     const fullOrder = await orderModel.getOrderById(newOrder.id);
     
+    // Уведомление в Telegram
+    telegramService
+    .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
+    .catch(err => console.error('[Telegram] Ошибка уведомления о новом заказе:', err));
+
     return {
       success: true,
       message: 'Заказ успешно оформлен',
@@ -419,6 +477,11 @@ const createAdminOrder = async (adminUserId, orderData) => {
 
     // 8. Получаем полную информацию о созданном заказе
     const fullOrder = await orderModel.getOrderById(newOrder.id);
+
+    telegramService
+    .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
+    .catch(err => console.error('[Telegram] Ошибка уведомления (admin):', err));
+
     return {
       success: true,
       message: 'Заказ успешно создан администратором',
@@ -627,6 +690,10 @@ const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') 
     
     // Получаем обновленную информацию
     const fullOrder = await orderModel.getOrderById(orderId);
+
+    // telegramService
+    // .sendStatusChangeNotification(fullOrder, `ORD-${String(orderId).padStart(6, '0')}`, oldStatus, newStatus)
+    // .catch(err => console.error('[Telegram] Ошибка уведомления о статусе:', err));
     
     return {
       success: true,
