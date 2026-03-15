@@ -23,16 +23,24 @@ const createPayment = async (req, res, next) => {
     // Проверяем, не создан ли уже платеж
     const paymentModel = require('../models/paymentModel');
     const existingPayment = await paymentModel.findPaymentByOrderId(orderId);
-    
-    if (existingPayment) {
-      return res.json({
-        success: true,
-        payment_id: existingPayment.id,
-        yookassa_payment_id: existingPayment.yookassa_payment_id,
-        status: existingPayment.status,
-        confirmation_url: existingPayment.confirmation_url,
-        order_status: order.status
-      });
+    if (existingPayment && existingPayment.status === 'pending') {
+      // Проверяем не истёк ли час
+      const createdAt = new Date(existingPayment.created_at);
+      const now = new Date();
+      const diffMinutes = (now - createdAt) / 1000 / 60;
+
+      if (diffMinutes < 55) {
+        // Ссылка ещё живая — отдаём её
+        return res.json({
+          success: true,
+          payment_id: existingPayment.id,
+          yookassa_payment_id: existingPayment.yookassa_payment_id,
+          status: existingPayment.status,
+          confirmation_url: existingPayment.confirmation_url,
+          order_status: order.status
+        });
+      }
+      // Если прошло больше 55 минут — создаём новый платёж ниже
     }
     
     // Проверяем сумму

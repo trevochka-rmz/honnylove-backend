@@ -114,7 +114,27 @@ const addStatusHistory = async (client, orderId, status, changerUserId = null) =
 };
 
 // Получить список заказов пользователя с информацией о товарах
-const getUserOrders = async (userId, limit = 10, offset = 0) => {
+const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
+  
+  let whereClause = 'WHERE o.user_id = $1';
+  const params = [userId];
+  let paramCount = 2;
+
+  // Если передан статус — фильтруем
+  // Если передан массив статусов — тоже работает
+  if (status) {
+    if (Array.isArray(status)) {
+      const placeholders = status.map((_, i) => `$${paramCount + i}`).join(',');
+      whereClause += ` AND o.status IN (${placeholders})`;
+      params.push(...status);
+      paramCount += status.length;
+    } else {
+      whereClause += ` AND o.status = $${paramCount}`;
+      params.push(status);
+      paramCount++;
+    }
+  }
+
   const res = await db.query(`
     SELECT 
       o.id,
@@ -130,9 +150,11 @@ const getUserOrders = async (userId, limit = 10, offset = 0) => {
       o.notes,
       o.created_at,
       o.updated_at,
+      o.customer_first_name,
+      o.customer_last_name,
+      o.customer_phone,
       
       COUNT(DISTINCT oi.id) as items_count,
-      
       COALESCE(SUM(oi.quantity), 0) as total_items_quantity,
       
       COALESCE(
@@ -155,20 +177,36 @@ const getUserOrders = async (userId, limit = 10, offset = 0) => {
     FROM orders o
     LEFT JOIN order_items oi ON o.id = oi.order_id
     LEFT JOIN product_products pp ON oi.product_id = pp.id
-    WHERE o.user_id = $1
+    ${whereClause}
     GROUP BY o.id
     ORDER BY o.created_at DESC
-    LIMIT $2 OFFSET $3
-  `, [userId, limit, offset]);
+    LIMIT $${paramCount} OFFSET $${paramCount + 1}
+  `, [...params, limit, offset]);
   
   return res.rows;
 };
 
+
 // Получить общее количество заказов пользователя
-const getUserOrdersCount = async (userId) => {
+const getUserOrdersCount = async (userId, status = null) => {
+  let whereClause = 'WHERE user_id = $1';
+  const params = [userId];
+  let paramCount = 2;
+
+  if (status) {
+    if (Array.isArray(status)) {
+      const placeholders = status.map((_, i) => `$${paramCount + i}`).join(',');
+      whereClause += ` AND status IN (${placeholders})`;
+      params.push(...status);
+    } else {
+      whereClause += ` AND status = $${paramCount}`;
+      params.push(status);
+    }
+  }
+
   const res = await db.query(
-    'SELECT COUNT(*) as total FROM orders WHERE user_id = $1',
-    [userId]
+    `SELECT COUNT(*) as total FROM orders ${whereClause}`,
+    params
   );
   return parseInt(res.rows[0].total, 10);
 };

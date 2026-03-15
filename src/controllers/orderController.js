@@ -45,12 +45,17 @@ const checkoutWithPayment = async (req, res, next) => {
  */
 const getMyOrders = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, status } = req.query;
+    
+    // status может прийти как строка "pending" 
+    // или как массив "status=pending&status=paid"
+    const statusFilter = status || null;
     
     const result = await orderService.getUserOrders(
       req.user.id,
       parseInt(page, 10),
-      parseInt(limit, 10)
+      parseInt(limit, 10),
+      statusFilter
     );
     
     res.json(result);

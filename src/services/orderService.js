@@ -493,13 +493,13 @@ const createAdminOrder = async (adminUserId, orderData) => {
 
 // ПОЛУЧЕНИЕ ЗАКАЗОВ
 // Получить заказы пользователя с пагинацией
-const getUserOrders = async (userId, page = 1, limit = 10) => {
+const getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
   try {
     const offset = (page - 1) * limit;
     
     const [orders, total] = await Promise.all([
-      orderModel.getUserOrders(userId, limit, offset),
-      orderModel.getUserOrdersCount(userId)
+      orderModel.getUserOrders(userId, limit, offset, status),
+      orderModel.getUserOrdersCount(userId, status)
     ]);
     
     const totalPages = Math.ceil(total / limit);
