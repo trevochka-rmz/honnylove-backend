@@ -394,7 +394,10 @@ const updateOrder = async (client, orderId, updateData) => {
     'tax_amount',
     'discount_amount',
     'tracking_number',
-    'notes'
+    'notes',
+    'customer_first_name',
+    'customer_last_name',
+    'customer_phone',
   ];
   
   const updates = [];

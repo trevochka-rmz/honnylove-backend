@@ -39,9 +39,9 @@ const createPOSOrderSchema = Joi.object({
       'any.only': 'Способ оплаты должен быть: cash или card',
       'any.required': 'Укажите способ оплаты'
     }),
-  
-  customer_name: Joi.string().max(200).optional().allow(''),
-  customer_phone: Joi.string().max(20).optional().allow(''),
+  customer_first_name: Joi.string().max(100).optional().allow(''),
+  customer_last_name:  Joi.string().max(100).optional().allow(''),
+  customer_phone:      Joi.string().max(20).optional().allow(''),
   notes: Joi.string().max(1000).optional().allow(''),
   discount_amount: Joi.number().min(0).default(0)
 });
@@ -169,19 +169,13 @@ const createPOSOrder = async (cashierId, orderData) => {
       throw new AppError('Итоговая сумма не может быть отрицательной', 400);
     }
 
-    // 5. Формируем примечания с меткой [POS]
+    // ШАГ 5 — убираем customer данные из notes, оставляем только метку и доп. примечание
     let notes = '[POS]';
-    if (value.customer_name) {
-      notes += ` | Клиент: ${value.customer_name}`;
-    }
-    if (value.customer_phone) {
-      notes += ` | Тел: ${value.customer_phone}`;
-    }
     if (value.notes) {
       notes += ` | ${value.notes}`;
     }
 
-    // 6. Создаем заказ
+    // ШАГ 6 — передаём customer данные в отдельные поля
     const newOrder = await orderModel.createOrder(client, {
       user_id: cashierId,
       total_amount,
@@ -190,7 +184,10 @@ const createPOSOrder = async (cashierId, orderData) => {
       shipping_cost: 0,
       tax_amount: 0,
       discount_amount: value.discount_amount || 0,
-      notes
+      notes,
+      customer_first_name: value.customer_first_name || null,
+      customer_last_name:  value.customer_last_name  || null,
+      customer_phone:      value.customer_phone      || null,
     });
 
     // 7. Добавляем товары в заказ и списываем со склада
@@ -517,11 +514,12 @@ const deletePOSOrder = async (orderId, userId, userRole) => {
 const updatePOSOrder = async (orderId, updateData, userId, userRole) => {
   // Схема валидации для обновления
   const updateSchema = Joi.object({
-    payment_method: Joi.string().valid('cash', 'card').optional(),
-    discount_amount: Joi.number().min(0).optional(),
-    notes: Joi.string().max(1000).optional().allow(''),
-    customer_name: Joi.string().max(200).optional().allow(''),
-    customer_phone: Joi.string().max(20).optional().allow('')
+    payment_method:      Joi.string().valid('cash', 'card').optional(),
+    discount_amount:     Joi.number().min(0).optional(),
+    notes:               Joi.string().max(1000).optional().allow(''),
+    customer_first_name: Joi.string().max(100).optional().allow(''),
+    customer_last_name:  Joi.string().max(100).optional().allow(''),
+    customer_phone:      Joi.string().max(20).optional().allow(''),
   });
   
   const { error, value } = updateSchema.validate(updateData);
@@ -564,29 +562,8 @@ const updatePOSOrder = async (orderId, updateData, userId, userRole) => {
       );
     }
     
-    // Обновляем примечания если есть customer_name или customer_phone
-    if (value.customer_name || value.customer_phone) {
-      let notes = order.notes || '[POS]';
-      
-      // Удаляем старые значения
-      notes = notes.replace(/\| Клиент: [^|]+/g, '');
-      notes = notes.replace(/\| Тел: [^|]+/g, '');
-      
-      // Добавляем новые
-      if (value.customer_name) {
-        notes += ` | Клиент: ${value.customer_name}`;
-      }
-      if (value.customer_phone) {
-        notes += ` | Тел: ${value.customer_phone}`;
-      }
-      
-      value.notes = notes.trim();
-      delete value.customer_name;
-      delete value.customer_phone;
-    }
-    
     // Обновляем заказ
-    const updated = await posModel.updatePOSOrder(client, orderId, value);
+    const updated = await orderModel.updateOrder(client, orderId, value);
     
     if (!updated) {
       throw new AppError('Нет данных для обновления', 400);

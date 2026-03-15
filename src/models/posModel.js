@@ -118,7 +118,10 @@ const getPOSOrders = async (filters = {}, limit = 50, offset = 0) => {
       o.tracking_number ILIKE $${paramCount} OR
       u.email ILIKE $${paramCount} OR
       u.first_name ILIKE $${paramCount} OR
-      u.last_name ILIKE $${paramCount}
+      u.last_name ILIKE $${paramCount} OR
+      o.customer_first_name ILIKE $${paramCount} OR
+      o.customer_last_name ILIKE $${paramCount} OR
+      o.customer_phone ILIKE $${paramCount}
     )`);
     params.push(`%${search}%`);
     paramCount++;
@@ -142,6 +145,9 @@ const getPOSOrders = async (filters = {}, limit = 50, offset = 0) => {
       o.notes,
       o.created_at,
       o.updated_at,
+      o.customer_first_name,
+      o.customer_last_name,
+      o.customer_phone,
       
       u.email as cashier_email,
       u.first_name as cashier_first_name,
@@ -249,7 +255,10 @@ const getPOSOrdersCount = async (filters = {}) => {
       o.tracking_number ILIKE $${paramCount} OR
       u.email ILIKE $${paramCount} OR
       u.first_name ILIKE $${paramCount} OR
-      u.last_name ILIKE $${paramCount}
+      u.last_name ILIKE $${paramCount} OR
+      o.customer_first_name ILIKE $${paramCount} OR
+      o.customer_last_name ILIKE $${paramCount} OR
+      o.customer_phone ILIKE $${paramCount}
     )`);
     params.push(`%${search}%`);
     paramCount++;
@@ -593,7 +602,10 @@ const updatePOSOrder = async (client, orderId, updateData) => {
   const allowedFields = [
     'payment_method',
     'discount_amount',
-    'notes'
+    'notes',
+    'customer_first_name',
+    'customer_last_name',
+    'customer_phone',
   ];
   
   const updates = [];

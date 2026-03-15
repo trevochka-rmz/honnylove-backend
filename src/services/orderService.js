@@ -39,53 +39,38 @@ const createAdminOrderSchema = Joi.object({
   shipping_cost: Joi.number().min(0).default(0),
   tax_amount: Joi.number().min(0).default(0),
   discount_amount: Joi.number().min(0).default(0),
-  tracking_number: Joi.string().max(100).optional().allow(null, '')
+  tracking_number: Joi.string().max(100).optional().allow(null, ''),
+  customer_first_name: Joi.string().min(2).max(100).optional().allow('', null),
+  customer_last_name:  Joi.string().min(2).max(100).optional().allow('', null),
+  customer_phone:      Joi.string().min(10).max(20).optional().allow('', null),
 });
 
 // Схема для оформления заказа
 const checkoutSchema = Joi.object({
+  selected_items: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1).required()
+    .messages({ 'any.required': 'Не указаны товары' }),
+
+  customer_first_name: Joi.string().min(2).max(100).required()
+    .messages({ 'any.required': 'Укажите имя получателя' }),
+  customer_last_name: Joi.string().min(2).max(100).required()
+    .messages({ 'any.required': 'Укажите фамилию получателя' }),
+  customer_phone: Joi.string().min(10).max(20).required()
+    .messages({ 'any.required': 'Укажите телефон получателя' }),
+
   shipping_address: Joi.string().min(10).max(500).required()
-    .messages({
-      'string.empty': 'Укажите адрес доставки',
-      'any.required': 'Адрес доставки обязателен'
-    }),
+    .messages({ 'any.required': 'Укажите адрес доставки' }),
+
   payment_method: Joi.string()
-    .valid('card', 'cash', 'online', 'sbp')
-    .required()
-    .messages({
-      'any.only': 'Неверный способ оплаты. Доступны: card, cash, online, sbp',
-      'any.required': 'Укажите способ оплаты'
-    }),
+    .valid('card', 'cash', 'online', 'sbp').required()
+    .messages({ 'any.required': 'Укажите способ оплаты' }),
+
   notes: Joi.string().max(1000).optional().allow(''),
   shipping_cost: Joi.number().min(0).default(0),
   tax_amount: Joi.number().min(0).default(0),
   discount_amount: Joi.number().min(0).default(0),
-  selected_items: Joi.array()
-    .items(Joi.number().integer().positive())
-    .min(1)
-    .required()
-    .messages({
-      'array.min': 'Выберите хотя бы один товар для оформления',
-      'any.required': 'Не указаны товары для оформления'
-    }),
-    customer_first_name: Joi.string().min(2).max(100).required()
-    .messages({
-      'string.empty': 'Укажите имя получателя',
-      'string.min': 'Имя должно содержать минимум 2 символа',
-      'any.required': 'Имя получателя обязательно'
-    }),
-  customer_last_name: Joi.string().min(2).max(100).required()
-    .messages({
-      'string.empty': 'Укажите фамилию получателя',
-      'string.min': 'Фамилия должна содержать минимум 2 символа',
-      'any.required': 'Фамилия получателя обязательна'
-    }),
-  customer_phone: Joi.string().min(10).max(20).required()
-    .messages({
-      'string.empty': 'Укажите телефон получателя',
-      'string.min': 'Некорректный номер телефона',
-      'any.required': 'Телефон получателя обязателен'
-    }),
+  save_address: Joi.boolean().default(false),
 });
 
 // Схема для обновления заказа
@@ -135,39 +120,37 @@ const createOrder = async (userId, orderData) => {
   const client = await db.pool.connect();
   
   try {
-    await client.query('BEGIN');
-    
-    // Проверяем текущие данные пользователя в профиле
-    const userRes = await client.query(
-      'SELECT first_name, last_name, phone FROM users WHERE id = $1',
-      [userId]
-    );
-    const currentUser = userRes.rows[0] || {};
+      await client.query('BEGIN');
 
-    // Обновляем профиль ТОЛЬКО по пустым полям
-    // Если поле уже заполнено — не трогаем его
-    const shouldUpdateFirstName = !currentUser.first_name;
-    const shouldUpdateLastName  = !currentUser.last_name;
-    const shouldUpdatePhone     = !currentUser.phone;
+      // Получаем текущие данные пользователя
+      const userRes = await client.query(
+        'SELECT first_name, last_name, phone FROM users WHERE id = $1',
+        [userId]
+      );
+      const currentUser = userRes.rows[0] || {};
 
-    if (shouldUpdateFirstName || shouldUpdateLastName || shouldUpdatePhone) {
+      // Обновляем профиль:
+      // имя/фамилия/телефон — только если было пусто
+      // адрес — только если пользователь поставил галочку "сохранить"
       await client.query(`
         UPDATE users SET
-          first_name = CASE WHEN first_name IS NULL OR first_name = '' 
+          first_name = CASE WHEN (first_name IS NULL OR first_name = '')
                       THEN $1 ELSE first_name END,
-          last_name  = CASE WHEN last_name IS NULL OR last_name = '' 
+          last_name  = CASE WHEN (last_name IS NULL OR last_name = '')
                       THEN $2 ELSE last_name END,
-          phone      = CASE WHEN phone IS NULL OR phone = '' 
+          phone      = CASE WHEN (phone IS NULL OR phone = '')
                       THEN $3 ELSE phone END,
+          address    = CASE WHEN $5 = true THEN $4 ELSE address END,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
+        WHERE id = $6
       `, [
         value.customer_first_name,
         value.customer_last_name,
         value.customer_phone,
-        userId
+        value.shipping_address,
+        value.save_address,
+        userId,
       ]);
-    }
     // Получаем ТОЛЬКО выбранные товары из корзины
     const cartItems = await orderModel.getSelectedCartItemsWithDetails(
       client, 
@@ -455,7 +438,10 @@ const createAdminOrder = async (adminUserId, orderData) => {
       tax_amount: value.tax_amount,
       discount_amount: value.discount_amount,
       notes: value.notes || '',
-      tracking_number: value.tracking_number
+      tracking_number: value.tracking_number,
+      customer_first_name: value.customer_first_name || null, 
+      customer_last_name:  value.customer_last_name  || null,  
+      customer_phone:      value.customer_phone      || null, 
     });
 
     // 6. Добавляем товары в заказ и списываем со склада
