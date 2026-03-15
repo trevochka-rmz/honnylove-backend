@@ -691,6 +691,32 @@ const removeSelectedCartItems = async (client, userId, selectedItemIds) => {
   `, [userId, ...selectedItemIds]);
 };
 
+// Вернуть товары из заказа обратно в корзину пользователя
+const returnItemsToCart = async (client, userId, orderItems) => {
+  for (const item of orderItems) {
+    // Проверяем есть ли уже такой товар в корзине
+    const existing = await client.query(`
+      SELECT id, quantity FROM cart_items 
+      WHERE user_id = $1 AND product_id = $2
+    `, [userId, item.product_id]);
+
+    if (existing.rowCount > 0) {
+      // Товар уже есть в корзине — увеличиваем количество
+      await client.query(`
+        UPDATE cart_items 
+        SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = $2 AND product_id = $3
+      `, [item.quantity, userId, item.product_id]);
+    } else {
+      // Товара нет в корзине — добавляем
+      await client.query(`
+        INSERT INTO cart_items (user_id, product_id, quantity, created_at, updated_at)
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [userId, item.product_id, item.quantity]);
+    }
+  }
+};
+
 module.exports = {
   // Корзина
   getCartItemsWithDetails,
@@ -729,5 +755,8 @@ module.exports = {
   getOrderStats,
   
   // Удаление
-  deleteOrder
+  deleteOrder,
+
+  // Отмена
+  returnItemsToCart,
 };

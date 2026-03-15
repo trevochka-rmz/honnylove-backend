@@ -5,8 +5,8 @@ const db = require('../config/db');
 const addCartItem = async (data) => {
   const { user_id, product_id, quantity } = data;
   const { rows } = await db.query(
-    `INSERT INTO cart_items (user_id, product_id, quantity)
-     VALUES ($1, $2, $3) RETURNING *`,
+    `INSERT INTO cart_items (user_id, product_id, quantity, created_at, updated_at)
+     VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`,
     [user_id, product_id, quantity]
   );
   return rows[0];

@@ -2,6 +2,7 @@
 const Joi = require('joi');
 const cartModel = require('../models/cartModel');
 const productService = require('./productService');
+const inventoryService = require('./inventoryService');
 const AppError = require('../utils/errorUtils');
 
 // Схема валидации для добавления/обновления товара в корзине
@@ -64,7 +65,6 @@ const getCart = async (userId) => {
       item.product = product;
       
       // Проверяем наличие на складе через инвентарь
-      const inventoryService = require('./inventoryService');
       let availableStock = 0;
       try {
         availableStock = await inventoryService.getTotalStock(item.product_id);
@@ -179,7 +179,6 @@ const getSelectedCartItems = async (userId, selectedItemIds) => {
       item.product = product;
       
       // Проверяем наличие на складе
-      const inventoryService = require('./inventoryService');
       let availableStock = 0;
       try {
         availableStock = await inventoryService.getTotalStock(item.product_id);
