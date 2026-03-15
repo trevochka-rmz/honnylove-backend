@@ -254,10 +254,12 @@ const createOrder = async (userId, orderData) => {
     const fullOrder = await orderModel.getOrderById(newOrder.id);
     
     // Уведомление в Telegram
-    telegramService
-    .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
-    .catch(err => console.error('[Telegram] Ошибка уведомления о новом заказе:', err));
-
+    if (value.payment_method === 'cash') {
+      telegramService
+        .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
+        .catch(err => console.error('[Telegram] Ошибка уведомления о новом заказе:', err));
+    }
+    
     return {
       success: true,
       message: 'Заказ успешно оформлен',

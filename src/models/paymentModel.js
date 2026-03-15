@@ -48,23 +48,22 @@ const createPayment = async (paymentData) => {
 
 // Обновить статус платежа
 const updatePaymentStatus = async (paymentId, status, capturedAt = null) => {
-  let query = `
-    UPDATE payments 
-    SET status = $2, updated_at = CURRENT_TIMESTAMP
-  `;
-  let params = [paymentId, status];
-  
   if (status === 'succeeded' && capturedAt) {
-    query = `
+    const { rows } = await db.query(`
       UPDATE payments 
       SET status = $2, captured_at = $3, updated_at = CURRENT_TIMESTAMP
-    `;
-    params = [paymentId, status, capturedAt];
+      WHERE id = $1
+      RETURNING *
+    `, [paymentId, status, capturedAt]);
+    return rows[0];
   }
   
-  query += ' WHERE id = $1 RETURNING *';
-  
-  const { rows } = await db.query(query, params);
+  const { rows } = await db.query(`
+    UPDATE payments 
+    SET status = $2, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING *
+  `, [paymentId, status]);
   return rows[0];
 };
 

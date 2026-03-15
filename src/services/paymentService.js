@@ -106,42 +106,63 @@ const createYookassaPayment = async (paymentData) => {
 };
 
 // Получить статус платежа
+// const getPaymentStatus = async (paymentId) => {
+//   try {
+//     const payment = await yooKassa.getPayment(paymentId);
+    
+//     // Обновляем статус в нашей БД
+//     const dbPayment = await paymentModel.findPaymentByYookassaId(paymentId);
+//     if (dbPayment) {
+//       await paymentModel.updatePaymentStatus(
+//         dbPayment.id, 
+//         payment.status,
+//         payment.captured_at || new Date()
+//       );
+      
+//       // ✅ ИСПРАВЛЕНО: Если платеж успешен, обновляем статус заказа
+//       if (payment.status === 'succeeded') {
+//         const order = await orderModel.getOrderById(dbPayment.order_id);
+//         if (order && order.status === 'pending') {
+//           const client = await db.pool.connect();
+          
+//           try {
+//             await client.query('BEGIN');
+            
+//             await orderModel.updateOrderStatus(client, dbPayment.order_id, 'paid');
+//             await orderModel.addStatusHistory(client, dbPayment.order_id, 'paid', order.user_id);
+            
+//             await client.query('COMMIT');
+            
+//             console.log(`✅ Заказ ${dbPayment.order_id} переведен в статус "paid"`);
+//           } catch (error) {
+//             await client.query('ROLLBACK');
+//             console.error('❌ Ошибка при обновлении статуса заказа:', error);
+//           } finally {
+//             client.release();
+//           }
+//         }
+//       }
+//     }
+    
+//     return payment;
+//   } catch (err) {
+//     console.error('❌ Ошибка получения статуса платежа:', err);
+//     throw new AppError('Не удалось получить статус платежа', 500);
+//   }
+// };
 const getPaymentStatus = async (paymentId) => {
   try {
     const payment = await yooKassa.getPayment(paymentId);
     
-    // Обновляем статус в нашей БД
+    // Обновляем только статус платежа в нашей БД
+    // Заказ НЕ трогаем — это делает только вебхук
     const dbPayment = await paymentModel.findPaymentByYookassaId(paymentId);
     if (dbPayment) {
       await paymentModel.updatePaymentStatus(
-        dbPayment.id, 
+        dbPayment.id,
         payment.status,
-        payment.captured_at || new Date()
+        payment.captured_at || null
       );
-      
-      // ✅ ИСПРАВЛЕНО: Если платеж успешен, обновляем статус заказа
-      if (payment.status === 'succeeded') {
-        const order = await orderModel.getOrderById(dbPayment.order_id);
-        if (order && order.status === 'pending') {
-          const client = await db.pool.connect();
-          
-          try {
-            await client.query('BEGIN');
-            
-            await orderModel.updateOrderStatus(client, dbPayment.order_id, 'paid');
-            await orderModel.addStatusHistory(client, dbPayment.order_id, 'paid', order.user_id);
-            
-            await client.query('COMMIT');
-            
-            console.log(`✅ Заказ ${dbPayment.order_id} переведен в статус "paid"`);
-          } catch (error) {
-            await client.query('ROLLBACK');
-            console.error('❌ Ошибка при обновлении статуса заказа:', error);
-          } finally {
-            client.release();
-          }
-        }
-      }
     }
     
     return payment;
@@ -230,6 +251,15 @@ const handleWebhook = async (webhookData) => {
         await client.query('COMMIT');
         console.log('✅ Транзакция успешно завершена');
         
+        if (order.status === 'pending') {
+          const telegramService = require('./telegramService');
+          const fullOrder = await orderModel.getOrderById(dbPayment.order_id);
+          const orderNumber = `ORD-${String(dbPayment.order_id).padStart(6, '0')}`;
+        
+          telegramService
+            .sendNewOrderNotification(fullOrder, orderNumber)
+            .catch(err => console.error('[Telegram] Ошибка уведомления после оплаты:', err));
+        }
         // ЗДЕСЬ МОЖНО ДОБАВИТЬ:
         // - Отправку email пользователю
         // - Уведомление менеджера

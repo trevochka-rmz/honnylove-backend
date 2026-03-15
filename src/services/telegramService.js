@@ -87,8 +87,12 @@ const sendMessage = async (text, orderId = null) => {
 
 const sendNewOrderNotification = async (order, orderNumber) => {
   const clientName = [order.customer_first_name, order.customer_last_name]
-    .filter(Boolean).join(' ') || '—';
-  const clientPhone = order.customer_phone || '—';
+  .filter(Boolean).join(' ')
+  || [order.user_first_name, order.user_last_name].filter(Boolean).join(' ')
+  || order.user_email
+  || `ID: ${order.user_id}`;
+
+const clientPhone = order.customer_phone || order.user_phone || '—';
 
   const itemsList = (order.items || [])
     .map((i, index) => {
