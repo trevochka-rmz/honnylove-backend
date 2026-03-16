@@ -4,6 +4,7 @@ const db = require('../config/db');
 const telegramService = require('./telegramService');
 const orderModel = require('../models/orderModel');
 const AppError = require('../utils/errorUtils');
+const emailService = require('./emailService');
 
 // Схема создания заказа от Админа
 const createAdminOrderSchema = Joi.object({
@@ -258,6 +259,12 @@ const createOrder = async (userId, orderData) => {
       telegramService
         .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
         .catch(err => console.error('[Telegram] Ошибка уведомления о новом заказе:', err));
+
+      // Письмо покупателю — только для наличных здесь
+      emailService.sendOrderConfirmation(fullOrder.user_email, {
+        orderNumber: `ORD-${String(newOrder.id).padStart(6, '0')}`,
+        order: fullOrder,
+      }).catch(err => console.error('[Email] Ошибка подтверждения заказа:', err));
     }
     
     return {

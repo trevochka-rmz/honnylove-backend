@@ -94,12 +94,12 @@ const registerUser = async (data) => {
  */
 const createTokensForUser = async (user, deviceInfo = {}) => {
   const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user);
   
-  // Сохраняем refresh token в БД
+  // Срок refresh token зависит от "запомнить меня"
+  const refreshExpiresIn = deviceInfo.rememberMe ? '30d' : '1d';
+  const refreshToken = generateRefreshToken(user, refreshExpiresIn);
+  
   await refreshTokenModel.createRefreshToken(user.id, refreshToken, deviceInfo);
-  
-  // Ограничиваем количество одновременных сессий (например, максимум 5 устройств)
   await refreshTokenModel.limitUserSessions(user.id, 5);
   
   return { accessToken, refreshToken };
@@ -150,14 +150,14 @@ const loginUser = async (credentials, deviceInfo = {}) => {
   const isMatch = await bcrypt.compare(credentials.password, user.password_hash);
   if (!isMatch) throw new AppError('Неверные учетные данные', 401);
   
-  const tokens = await createTokensForUser(user, deviceInfo);
+  // Передаём rememberMe из тела запроса в deviceInfo
+  const tokens = await createTokensForUser(user, {
+    ...deviceInfo,
+    rememberMe: credentials.rememberMe || false,
+  });
   
   return {
-    user: { 
-      ...user, 
-      password_hash: undefined, 
-      isVerified: user.is_verified 
-    },
+    user: { ...user, password_hash: undefined },
     ...tokens,
   };
 };

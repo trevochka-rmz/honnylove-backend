@@ -9,11 +9,13 @@ const generateAccessToken = (user) => {
     });
 };
 
-const generateRefreshToken = (user) => {
-    return jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET, {
-        expiresIn: '7d',
-    });
-};
+const generateRefreshToken = (user, expiresIn = '7d') => {
+    return jwt.sign(
+      { id: user.id }, 
+      process.env.JWT_REFRESH_SECRET, 
+      { expiresIn }
+    );
+  };
 
 const verifyToken = (token, secret = process.env.JWT_SECRET) => {
     try {

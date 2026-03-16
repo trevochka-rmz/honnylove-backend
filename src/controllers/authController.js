@@ -32,19 +32,24 @@ const login = async (req, res, next) => {
     const deviceInfo = getDeviceInfo(req);
     const result = await authService.loginUser(req.body, deviceInfo);
     
-    // Устанавливаем cookies
+    const rememberMe = req.body.rememberMe || false;
+    
     res.cookie('accessToken', result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 15 * 60 * 1000, // 15 минут
+      maxAge: 15 * 60 * 1000, // 15 минут — всегда одинаково
     });
 
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+      // С галочкой — 30 дней, без галочки — сессионная кука (закроет браузер)
+      ...(rememberMe 
+        ? { maxAge: 30 * 24 * 60 * 60 * 1000 } 
+        : {}  // без maxAge = сессионная кука
+      ),
     });
 
     res.json({ 

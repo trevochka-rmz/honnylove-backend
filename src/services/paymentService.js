@@ -54,6 +54,23 @@ const createYookassaPayment = async (paymentData) => {
       confirmation: {
         type: 'redirect',
         return_url: `${process.env.APP_BASE_URL || 'https://honnylove.ru'}/api/payments/success/${value.order_id}`
+      },
+      receipt: {
+        // Email покупателя — обязательно для отправки чека
+        customer: {
+          email: order.user_email,
+        },
+        items: (order.items || []).map(item => ({
+          description: item.product_name,  // название товара
+          quantity: String(item.quantity),
+          amount: {
+            value: Number(item.discount_price || item.price).toFixed(2),
+            currency: 'RUB'
+          },
+          vat_code: 1,  // 1 = без НДС. Если есть НДС 20% — ставь 6
+          payment_mode: 'full_payment',       // полная оплата
+          payment_subject: 'commodity'        // товар
+        }))
       }
     };
 
@@ -256,9 +273,16 @@ const handleWebhook = async (webhookData) => {
           const fullOrder = await orderModel.getOrderById(dbPayment.order_id);
           const orderNumber = `ORD-${String(dbPayment.order_id).padStart(6, '0')}`;
         
+          // Telegram
           telegramService
             .sendNewOrderNotification(fullOrder, orderNumber)
             .catch(err => console.error('[Telegram] Ошибка уведомления после оплаты:', err));
+
+          // Email покупателю
+          emailService.sendOrderConfirmation(fullOrder.user_email, {
+            orderNumber,
+            order: fullOrder,
+          }).catch(err => console.error('[Email] Ошибка подтверждения заказа:', err));
         }
         // ЗДЕСЬ МОЖНО ДОБАВИТЬ:
         // - Отправку email пользователю
