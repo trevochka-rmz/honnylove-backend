@@ -98,15 +98,23 @@ const getAllProducts = async ({
 
     // ====================== Остальные фильтры ======================
     if (minPrice) {
-        where += (where ? ' AND' : '') +
-            ` COALESCE("discountPrice", price) >= $${params.length + 1}`;
+        where += (where ? ' AND' : '') + `
+          CASE 
+            WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
+            THEN "discountPrice" 
+            ELSE price 
+          END >= $${params.length + 1}`;
         params.push(minPrice);
-    }
-    if (maxPrice) {
-        where += (where ? ' AND' : '') +
-            ` COALESCE("discountPrice", price) <= $${params.length + 1}`;
+      }
+      if (maxPrice) {
+        where += (where ? ' AND' : '') + `
+          CASE 
+            WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
+            THEN "discountPrice" 
+            ELSE price 
+          END <= $${params.length + 1}`;
         params.push(maxPrice);
-    }
+      }
     if (isFeatured !== undefined) {
         where += (where ? ' AND' : '') + ` "isFeatured" = $${params.length + 1}`;
         params.push(isFeatured);
@@ -145,10 +153,18 @@ const getAllProducts = async ({
             secondarySort = '"reviewCount" DESC, id DESC';
             break;
         case 'price_asc':
-            secondarySort = 'COALESCE("discountPrice", price) ASC, id DESC';
+            secondarySort = `CASE 
+                WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
+                THEN "discountPrice" 
+                ELSE price 
+            END ASC, id DESC`;
             break;
         case 'price_desc':
-            secondarySort = 'COALESCE("discountPrice", price) DESC, id DESC';
+            secondarySort = `CASE 
+                WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
+                THEN "discountPrice" 
+                ELSE price 
+            END DESC, id DESC`;
             break;
         case 'rating':
             secondarySort = 'rating DESC, id DESC';

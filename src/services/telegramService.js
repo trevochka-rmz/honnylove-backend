@@ -157,7 +157,26 @@ const sendStatusChangeNotification = async (order, orderNumber, oldStatus, newSt
   return sendMessage(text, order.id);
 };
 
+// Отправка отмены оплаты
+const sendPaymentCancelledNotification = async (order, orderNumber) => {
+  const clientName = [order.customer_first_name, order.customer_last_name]
+    .filter(Boolean).join(' ') || order.user_email || '—';
+
+  const text =
+    `ПОКУПАТЕЛЬ ОТМЕНИЛ ОПЛАТУ\n` +
+    `\n` +
+    `Заказ:    ${orderNumber}\n` +
+    `Клиент:   ${clientName}\n` +
+    `Телефон:  ${order.customer_phone || '—'}\n` +
+    `Сумма:    ${Number(order.total_amount).toLocaleString('ru-RU')} руб.\n` +
+    `\n` +
+    `Товары возвращены в корзину покупателя.`;
+
+  return sendMessage(text, order.id);
+};
+
 module.exports = {
   sendNewOrderNotification,
   sendStatusChangeNotification,
+  sendPaymentCancelledNotification,
 };

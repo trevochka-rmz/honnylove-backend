@@ -300,40 +300,48 @@ const handleWebhook = async (webhookData) => {
     // Обрабатываем отмененный платеж
     if (paymentEvent === 'payment.canceled' || paymentObject.status === 'canceled') {
       console.log('❌ Обработка отмененного платежа...');
-
+    
       const dbPayment = await paymentModel.findPaymentByYookassaId(paymentObject.id);
-
+    
       if (dbPayment) {
         await client.query('BEGIN');
-
+    
         try {
           // Обновляем статус платежа
           await paymentModel.updatePaymentStatus(dbPayment.id, 'canceled');
-
+    
           // Получаем заказ с товарами
           const order = await orderModel.getOrderById(dbPayment.order_id);
-
+    
           if (order && order.status === 'pending') {
             // Возвращаем товары на склад
             for (const item of order.items) {
               await orderModel.returnInventory(client, item.product_id, item.quantity);
             }
-
+    
             // Возвращаем товары в корзину
             await orderModel.returnItemsToCart(client, order.user_id, order.items);
-
+    
             // Отменяем заказ
             await orderModel.updateOrderStatus(client, dbPayment.order_id, 'cancelled');
             await orderModel.addStatusHistory(client, dbPayment.order_id, 'cancelled', null);
-
+    
             await client.query('COMMIT');
-
             console.log(`✅ Заказ #${dbPayment.order_id} отменён, товары возвращены в корзину`);
+    
+            // Уведомление ПОСЛЕ COMMIT — здесь order уже есть и данные актуальны
+            const fullOrder = await orderModel.getOrderById(dbPayment.order_id);
+            const orderNumber = `ORD-${String(dbPayment.order_id).padStart(6, '0')}`;
+    
+            telegramService
+              .sendPaymentCancelledNotification(fullOrder, orderNumber)
+              .catch(err => console.error('[Telegram] Ошибка уведомления об отмене:', err));
+    
           } else {
             await client.query('ROLLBACK');
             console.log(`⚠️ Заказ уже в статусе "${order?.status}", пропускаем`);
           }
-
+    
         } catch (err) {
           await client.query('ROLLBACK');
           console.error('❌ Ошибка при отмене заказа:', err.message);
