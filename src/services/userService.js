@@ -137,6 +137,10 @@ const getProfile = async (userId) => {
 const updateProfile = async (userId, data) => {
   const { error, value } = updateProfileSchema.validate(data);
   if (error) throw new AppError(`Ошибка валидации: ${error.details[0].message}`, 400);
+  // Синхронизируем username с first_name
+  if (value.first_name) {
+    value.username = value.first_name;
+  }
   return userModel.updateUser(userId, value);
 };
 

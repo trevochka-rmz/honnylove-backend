@@ -96,7 +96,9 @@ const clientPhone = order.customer_phone || order.user_phone || '—';
 
   const itemsList = (order.items || [])
     .map((i, index) => {
-      const price = Number(i.discount_price || i.price);
+      const price = (i.discount_price && Number(i.discount_price) > 0)
+        ? Number(i.discount_price)
+        : Number(i.price);
       const lineTotal = price * i.quantity;
       return (
         `${index + 1}. ${i.product_name}\n` +

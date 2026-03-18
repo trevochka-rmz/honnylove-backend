@@ -23,9 +23,16 @@ const getCartItemsWithDetails = async (client, userId) => {
       pb.name as brand_name,
       pc.name as category_name,
       
-      COALESCE(pp.discount_price, pp.retail_price) as final_price,
-      
-      (ci.quantity * COALESCE(pp.discount_price, pp.retail_price)) as line_total,
+      CASE 
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
+        THEN pp.discount_price 
+        ELSE pp.retail_price 
+      END as final_price,
+      (ci.quantity * CASE 
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
+        THEN pp.discount_price 
+        ELSE pp.retail_price 
+      END) as line_total,
       
       COALESCE(
         (SELECT SUM(quantity) 
@@ -168,7 +175,11 @@ const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
             'quantity', oi.quantity,
             'price', oi.price,
             'discount_price', oi.discount_price,
-            'line_total', oi.quantity * COALESCE(oi.discount_price, oi.price)
+            'line_total', oi.quantity * CASE 
+              WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
+              THEN oi.discount_price 
+              ELSE oi.price 
+            END
           ) ORDER BY oi.id
         ) FILTER (WHERE oi.id IS NOT NULL),
         '[]'::json
@@ -377,7 +388,11 @@ const getOrderById = async (orderId) => {
             'quantity', oi.quantity,
             'price', oi.price,
             'discount_price', oi.discount_price,
-            'line_total', oi.quantity * COALESCE(oi.discount_price, oi.price),
+            'line_total', oi.quantity * CASE 
+              WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
+              THEN oi.discount_price 
+              ELSE oi.price 
+            END,
             'created_at', oi.created_at
           ) ORDER BY oi.id
         ) FILTER (WHERE oi.id IS NOT NULL),
@@ -474,7 +489,11 @@ const recalculateOrderTotal = async (client, orderId) => {
     SET 
       total_amount = (
         SELECT 
-          COALESCE(SUM(oi.quantity * COALESCE(oi.discount_price, oi.price)), 0) +
+          COALESCE(SUM(oi.quantity * CASE 
+            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
+            THEN oi.discount_price 
+            ELSE oi.price 
+          END), 0)+
           o.shipping_cost + 
           o.tax_amount - 
           o.discount_amount
@@ -689,9 +708,16 @@ const getSelectedCartItemsWithDetails = async (client, userId, selectedItemIds) 
       pb.name as brand_name,
       pc.name as category_name,
       
-      COALESCE(pp.discount_price, pp.retail_price) as final_price,
-      
-      (ci.quantity * COALESCE(pp.discount_price, pp.retail_price)) as line_total,
+      CASE 
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
+        THEN pp.discount_price 
+        ELSE pp.retail_price 
+      END as final_price,
+      (ci.quantity * CASE 
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
+        THEN pp.discount_price 
+        ELSE pp.retail_price 
+      END) as line_total,
       
       COALESCE(
         (SELECT SUM(quantity) 

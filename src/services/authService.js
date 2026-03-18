@@ -45,6 +45,7 @@ const loginSchema = Joi.object({
     'string.min': 'Пароль должен быть не менее 6 символов',
     'any.required': 'Пароль обязателен',
   }),
+  rememberMe: Joi.boolean().default(false),
 });
 
 const resetSchema = Joi.object({
@@ -71,6 +72,7 @@ const registerUser = async (data) => {
   const hashedPassword = await bcrypt.hash(value.password, 10);
   const newUser = await userModel.createUser({
     ...value,
+    first_name: value.username,
     password_hash: hashedPassword,
   });
 

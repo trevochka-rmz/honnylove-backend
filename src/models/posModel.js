@@ -26,7 +26,11 @@ const getProductsForCheckout = async (client, productIds) => {
       pb.name as brand_name,
       pc.name as category_name,
       
-      COALESCE(pp.discount_price, pp.retail_price) as final_price,
+      CASE 
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
+        THEN pp.discount_price 
+        ELSE pp.retail_price 
+      END as final_price,
       
       COALESCE(
         (SELECT SUM(quantity) 
@@ -167,7 +171,11 @@ const getPOSOrders = async (filters = {}, limit = 50, offset = 0) => {
             'quantity', oi.quantity,
             'price', oi.price,
             'discount_price', oi.discount_price,
-            'line_total', oi.quantity * COALESCE(oi.discount_price, oi.price)
+            'line_total', oi.quantity * CASE 
+              WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
+              THEN oi.discount_price 
+              ELSE oi.price 
+            END
           ) ORDER BY oi.id
         ) FILTER (WHERE oi.id IS NOT NULL),
         '[]'::json
@@ -409,7 +417,11 @@ const getTopProducts = async (filters = {}, limit = 10) => {
       
       COUNT(oi.id) as times_ordered,
       SUM(oi.quantity) as total_quantity_sold,
-      SUM(oi.quantity * COALESCE(oi.discount_price, oi.price)) as total_revenue
+      SUM(oi.quantity * CASE 
+        WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
+        THEN oi.discount_price 
+        ELSE oi.price 
+      END) as total_revenue
       
     FROM order_items oi
     INNER JOIN product_products pp ON oi.product_id = pp.id

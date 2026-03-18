@@ -190,7 +190,7 @@ const createOrder = async (userId, orderData) => {
     }
     if (insufficientItems.length > 0) {
       throw new AppError(
-        'Недостаточно товаров на складе. Смотрите детали.',
+        'Недостаточно товаров на складе. Попробуйте изменить количество или выбрать другой.',
         400,
         { insufficientItems }
       );
@@ -233,7 +233,9 @@ const createOrder = async (userId, orderData) => {
         product_id: item.product_id,
         quantity: item.cart_quantity,
         price: item.retail_price,
-        discount_price: item.discount_price
+        discount_price: (item.discount_price && Number(item.discount_price) > 0)
+        ? item.discount_price
+        : null,
       });
       
       await orderModel.decreaseInventory(
@@ -388,7 +390,11 @@ const createAdminOrder = async (adminUserId, orderData) => {
           retail_price,
           discount_price,
           is_active,
-          COALESCE(discount_price, retail_price) as final_price
+          CASE 
+            WHEN discount_price IS NOT NULL AND discount_price > 0 
+            THEN discount_price 
+            ELSE retail_price 
+          END as final_price
         FROM product_products
         WHERE id = $1 AND is_active = true
       `, [item.product_id]);
@@ -460,7 +466,9 @@ const createAdminOrder = async (adminUserId, orderData) => {
         product_id: item.id,
         quantity: item.cart_quantity,
         price: item.retail_price,
-        discount_price: item.discount_price
+        discount_price: (item.discount_price && Number(item.discount_price) > 0)
+        ? item.discount_price
+        : null,
       });
       await orderModel.decreaseInventory(client, item.id, item.cart_quantity);
     }

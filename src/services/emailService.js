@@ -444,7 +444,9 @@ const sendOrderConfirmation = async (email, orderData) => {
 
     // Список товаров в красивом виде
     const itemsHtml = (order.items || []).map(item => {
-      const price = Number(item.discount_price || item.price);
+      const price = (i.discount_price && Number(i.discount_price) > 0)
+        ? Number(i.discount_price)
+        : Number(i.price);
       const lineTotal = price * item.quantity;
       return `
         <tr>
