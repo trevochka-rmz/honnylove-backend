@@ -5,35 +5,26 @@ const productController = require('../controllers/productController');
 const productExportController = require('../controllers/productExportController');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
-// =====================================================================================================
-// ⚠️ КРИТИЧЕСКИ ВАЖНО: ПОРЯДОК МАРШРУТОВ ИМЕЕТ ЗНАЧЕНИЕ!
-// =====================================================================================================
-// Express обрабатывает маршруты СВЕРХУ ВНИЗ по порядку объявления.
-// Статичные пути (вроде /search, /admin/all, /export/pdf) ДОЛЖНЫ идти ПЕРЕД динамическими (/:identifier)
-// Иначе динамический маршрут /:identifier перехватит все запросы и вызовется БЕЗ authenticate!
-// =====================================================================================================
-
 // =====================================
-// ПУБЛИЧНЫЕ СТАТИЧНЫЕ МАРШРУТЫ
-// (Эти маршруты НЕ требуют авторизации)
+// ПУБЛИЧНЫЕ МАРШРУТЫ (без авторизации)
 // =====================================
 
 /**
- * Поиск продуктов
- * GET /api/products/search?query=search_string&page=1&limit=20
- * Доступ: Публичный
- * 
+ * Поиск товаров
+ * GET /api/products/search
+ * Доступ: Public
+ *
  * Query параметры:
- * - query: поисковый запрос (обязательно)
- * - page: номер страницы (опционально, по умолчанию 1)
- * - limit: количество на странице (опционально, по умолчанию 20)
- * 
- * Ответ:
+ * - query: строка, поисковый запрос (обязательно)
+ * - page: число, номер страницы (по умолчанию 1)
+ * - limit: число, количество на странице (по умолчанию 20)
+ *
+ * Ответ 200:
  * {
  *   "products": [...],
  *   "total": 100,
  *   "page": 1,
- *   "pages": 10,
+ *   "pages": 5,
  *   "limit": 20,
  *   "hasMore": true
  * }
@@ -41,66 +32,28 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 router.get('/search', productController.searchProducts);
 
 /**
- * Получить список продуктов с пагинацией и фильтрами
- * GET /api/products?page=1&limit=9&categoryId=1&brandId=2&search=query&minPrice=100&maxPrice=500&isFeatured=true&isNew=true&isBestseller=true&isOnSale=true&sort=popularity
- * Доступ: Публичный
+ * Получить список товаров с фильтрами и пагинацией
+ * GET /api/products
+ * Доступ: Public
  *
- * Query параметры:
- * - page: номер страницы (по умолчанию 1)
- * - limit: количество на странице (по умолчанию 9, max 50)
- * - categoryId: ID категории (опционально)
- * - brandId: ID бренда или несколько через запятую (опционально, например: brandId=1,2,3)
- * - search: поиск по имени, описанию, бренду, категории, SKU и т.д. (опционально)
- * - minPrice: минимальная цена (опционально)
- * - maxPrice: максимальная цена (опционально)
- * - isFeatured: избранные товары (true/false, опционально)
- * - isNew: новинки (true/false, опционально)
- * - isBestseller: бестселлеры (true/false, опционально)
- * - isOnSale: товары со скидкой (true/false, опционально)
- * - sort: сортировка (опционально)
- *   Доступные значения:
- *   - popularity: по популярности (количество отзывов)
- *   - price_asc: по цене (возрастание)
- *   - price_desc: по цене (убывание)
- *   - rating: по рейтингу
- *   - new_random: случайные новинки
- *   - id_desc: по ID (по умолчанию)
- *   - newest: по дате создания (новые первыми)
- *   - relevance: по релевантности (только при поиске)
- * 
- * Ответ:
+ * Query параметры (все опциональные):
+ * - page: число, по умолчанию 1
+ * - limit: число от 1 до 50, по умолчанию 9
+ * - categoryId: число, ID категории (включает подкатегории)
+ * - brandId: строка, ID бренда или несколько через запятую "1,2,3"
+ * - search: строка, полнотекстовый поиск
+ * - minPrice: число, минимальная цена (учитывает скидку)
+ * - maxPrice: число, максимальная цена (учитывает скидку)
+ * - isFeatured: boolean, рекомендуемые товары
+ * - isNew: boolean, новинки
+ * - isBestseller: boolean, бестселлеры
+ * - isOnSale: boolean, товары со скидкой
+ * - sort: строка, вариант сортировки:
+ *     id_desc | newest | price_asc | price_desc | popularity | rating | new_random | relevance
+ *
+ * Ответ 200:
  * {
- *   "products": [
- *     {
- *       "id": 1,
- *       "name": "Название товара",
- *       "slug": "nazvanie-tovara",
- *       "description": "Описание",
- *       "price": 1000,
- *       "discountPrice": 800,
- *       "mainImageUrl": "https://...",
- *       "imageUrls": ["https://..."],
- *       "brand": "Бренд",
- *       "brandId": 1,
- *       "categoryName": "Категория",
- *       "categoryId": 1,
- *       "sku": "SKU-123",
- *       "rating": 4.5,
- *       "reviewCount": 10,
- *       "stockQuantity": 50,
- *       "inStock": true,
- *       "isFeatured": false,
- *       "isNew": true,
- *       "isBestseller": false,
- *       "skinType": "Все типы",
- *       "targetAudience": "unisex",
- *       "ingredients": "Состав",
- *       "usage": "Применение",
- *       "variants": [{"name": "Объём", "value": "50мл"}],
- *       "createdAt": "2025-01-15T10:30:00.000Z",
- *       "updatedAt": "2025-02-20T15:45:00.000Z"
- *     }
- *   ],
+ *   "products": [{ "id", "name", "slug", "price", "discountPrice", ... }],
  *   "total": 100,
  *   "page": 1,
  *   "pages": 12,
@@ -113,23 +66,22 @@ router.get('/', (req, res, next) =>
 );
 
 // =====================================
-// АДМИНСКИЕ СТАТИЧНЫЕ МАРШРУТЫ
-// (Эти маршруты требуют авторизации)
+// АДМИНСКИЕ МАРШРУТЫ (требуют авторизации)
 // =====================================
 
 /**
- * Экспорт продуктов в PDF
- * GET /api/products/export/pdf?brandId=1&categoryId=2&search=query&inStock=true&showStatus=true
+ * Экспорт товаров в PDF
+ * GET /api/products/export/pdf
  * Доступ: Admin
- * 
- * Query параметры (все опциональны):
- * - brandId: фильтр по ID бренда
- * - categoryId: фильтр по ID категории
- * - search: поиск по имени, описанию и т.д.
- * - inStock: только товары в наличии (true/false)
- * - showStatus: показать статус товаров в PDF (true/false)
- * 
- * Ответ: PDF файл для скачивания
+ *
+ * Query параметры (все опциональные):
+ * - brandId: число, фильтр по бренду
+ * - categoryId: число, фильтр по категории
+ * - search: строка, поиск
+ * - inStock: boolean, только товары в наличии
+ * - showStatus: boolean, показать статус is_active в PDF
+ *
+ * Ответ: PDF файл (скачивание)
  */
 router.get(
   '/export/pdf',
@@ -139,18 +91,18 @@ router.get(
 );
 
 /**
- * Экспорт продуктов в CSV
- * GET /api/products/export/csv?brandId=1&categoryId=2&search=query&inStock=true&showStatus=true
+ * Экспорт товаров в CSV
+ * GET /api/products/export/csv
  * Доступ: Admin
- * 
- * Query параметры (все опциональны):
- * - brandId: фильтр по ID бренда
- * - categoryId: фильтр по ID категории
- * - search: поиск по имени, описанию и т.д.
- * - inStock: только товары в наличии (true/false)
- * - showStatus: показать статус товаров в CSV (true/false)
- * 
- * Ответ: CSV файл для скачивания
+ *
+ * Query параметры (все опциональные):
+ * - brandId: число, фильтр по бренду
+ * - categoryId: число, фильтр по категории
+ * - search: строка, поиск
+ * - inStock: boolean, только товары в наличии
+ * - showStatus: boolean, показать статус is_active в CSV
+ *
+ * Ответ: CSV файл (скачивание)
  */
 router.get(
   '/export/csv',
@@ -160,18 +112,18 @@ router.get(
 );
 
 /**
- * Получить все продукты для админа (с закупочными ценами)
- * GET /api/products/admin/all?page=1&limit=9&categoryId=1&brandId=2&search=query&minPrice=100&maxPrice=500&isFeatured=true&isNew=true&isBestseller=true&isOnSale=true&sort=popularity
+ * Получить список товаров для админки
+ * GET /api/products/admin/all
  * Доступ: Admin, Manager
- * 
- * Query параметры: те же что и для публичного списка товаров (см. выше)
- * 
- * Отличие от публичного эндпоинта:
- * - Возвращает данные из admin_product_view (включает закупочную цену purchasePrice)
- * - Для менеджеров purchasePrice скрывается на уровне контроллера
- * - Показывает все товары (даже неактивные is_active = false)
- * 
- * Ответ: аналогичен публичному, но с дополнительным полем purchasePrice (только для админов)
+ *
+ * Query параметры: те же что у GET /api/products
+ *
+ * Отличия от публичного:
+ * - Возвращает все товары включая неактивные (is_active = false)
+ * - Для Admin: включает поле purchasePrice (закупочная цена)
+ * - Для Manager: purchasePrice скрыт
+ *
+ * Ответ 200: такой же формат как GET /api/products
  */
 router.get(
   '/admin/all',
@@ -181,25 +133,20 @@ router.get(
 );
 
 /**
- * Получить продукт по идентификатору для админа
+ * Получить один товар для админки по ID или slug
  * GET /api/products/admin/:identifier
  * Доступ: Admin, Manager
- * 
- * Параметры:
- * - identifier: ID товара (число) или slug товара (строка)
- * 
- * Отличие от публичного эндпоинта:
- * - Возвращает данные из admin_product_view (включает purchasePrice)
- * - Для менеджеров purchasePrice скрывается на уровне контроллера
- * - Показывает даже неактивные товары
- * 
- * Ответ:
- * {
- *   "id": 1,
- *   "name": "Название товара",
- *   "purchasePrice": 500,  // только для админов
- *   ... (все остальные поля как в публичном эндпоинте)
- * }
+ *
+ * Параметры URL:
+ * - identifier: число (ID) или строка (slug)
+ *
+ * Отличия от публичного:
+ * - Возвращает даже неактивные товары
+ * - Для Admin: включает purchasePrice
+ * - Для Manager: purchasePrice скрыт
+ *
+ * Ответ 200: объект товара
+ * Ответ 404: { "message": "Продукт не найден" }
  */
 router.get(
   '/admin/:identifier',
@@ -208,54 +155,43 @@ router.get(
   (req, res, next) => productController.getProductByIdentifier(req, res, next, true)
 );
 
-// =====================================
-// АДМИНСКИЕ МЕТОДЫ МОДИФИКАЦИИ
-// =====================================
-
 /**
- * Создать новый продукт
+ * Создать новый товар
  * POST /api/products
  * Доступ: Admin
  * Content-Type: multipart/form-data
- * 
- * Body fields (текстовые поля в form-data):
- * - name: "Название товара" (обязательно, строка)
- * - description: "Описание товара" (опционально, строка)
- * - purchase_price: 100 (обязательно, положительное число, закупочная цена)
- * - retail_price: 200 (обязательно, положительное число, розничная цена)
- * - discount_price: 150 (опционально, число >= 0 или null, цена со скидкой)
- * - brand_id: 1 (обязательно, целое число, ID бренда)
- * - category_id: 1 (обязательно, целое число, ID категории)
- * - supplier_id: 1 (опционально, целое число, ID поставщика)
- * - product_type: "Крем" (обязательно, строка, тип товара)
- * - target_audience: "unisex" (опционально, по умолчанию "unisex", варианты: male/female/unisex)
- * - skin_type: "Все типы кожи" (опционально, строка, max 100 символов)
- * - weight_grams: 100 (опционально, целое число, вес в граммах)
- * - length_cm: 10 (опционально, целое число, длина в см)
- * - width_cm: 10 (опционально, целое число, ширина в см)
- * - height_cm: 10 (опционально, целое число, высота в см)
- * - is_active: true (опционально, boolean, по умолчанию true, активен ли товар)
- * - is_featured: false (опционально, boolean, по умолчанию false, рекомендуемый товар)
- * - is_new: true (опционально, boolean, по умолчанию true, новинка)
- * - is_bestseller: false (опционально, boolean, по умолчанию false, бестселлер)
- * - attributes: '{"ingredients": "Состав", "usage": "Применение", "variants": [{"name": "Объём", "value": "50мл"}]}' 
- *   (опционально, JSON строка или объект, дополнительные атрибуты товара)
- * - meta_title: "SEO заголовок" (опционально, строка, мета-заголовок для SEO)
- * - meta_description: "SEO описание" (опционально, строка, мета-описание для SEO)
- * - stockQuantity: 10 (опционально, целое число >= 0, количество на складе с location_id = 1)
- * 
- * Files (файлы в form-data):
- * - mainImage: файл главного изображения товара (опционально, 1 файл, max 5MB, форматы: jpg, jpeg, png, webp)
- * - gallery: массив файлов для галереи товара (опционально, до 10 файлов, каждый max 5MB, форматы: jpg, jpeg, png, webp)
- * 
- * Примечание:
- * - Если mainImage не передано, будет использовано изображение-заглушка
- * - Если gallery не передано, будет использована галерея-заглушка
- * - Изображения загружаются в S3 (или локальную папку uploads/)
- * - slug генерируется автоматически на основе name
- * - attributes.variants можно не передавать, будет значение по умолчанию [{"name": "Объём", "value": "50мл"}]
- * 
- * Ответ: объект созданного товара (из admin_product_view)
+ *
+ * Обязательные поля (строки через FormData):
+ * - name: строка, название товара
+ * - purchase_price: строка с числом, закупочная цена
+ * - retail_price: строка с числом, розничная цена
+ * - brand_id: строка с числом, ID бренда
+ * - category_id: строка с числом, ID категории
+ * - product_type: строка, тип товара (например "Крем")
+ *
+ * Опциональные поля:
+ * - description: строка
+ * - discount_price: строка с числом, цена со скидкой ("0" или "" чтобы убрать)
+ * - supplier_id: строка с числом
+ * - target_audience: "male" | "female" | "unisex" (по умолчанию "unisex")
+ * - skin_type: строка до 100 символов
+ * - weight_grams, length_cm, width_cm, height_cm: строки с числами
+ * - is_active: "true" | "false" (по умолчанию "true")
+ * - is_featured: "true" | "false" (по умолчанию "false")
+ * - is_new: "true" | "false" (по умолчанию "true")
+ * - is_bestseller: "true" | "false" (по умолчанию "false")
+ * - stockQuantity: строка с числом, количество на складе
+ * - meta_title: строка
+ * - meta_description: строка
+ * - attributes: JSON строка вида:
+ *     '{"ingredients":"Aqua","usage":"Наносить","variants":[{"name":"Объём","value":"50мл"}]}'
+ *
+ * Файлы:
+ * - mainImage: 1 файл, jpg/jpeg/png/webp, максимум 5MB
+ * - gallery: до 10 файлов, jpg/jpeg/png/webp, максимум 5MB каждый
+ *
+ * Ответ 201: объект созданного товара
+ * Ответ 400: { "message": "текст ошибки валидации" }
  */
 router.post(
   '/',
@@ -265,50 +201,26 @@ router.post(
 );
 
 /**
- * Обновить продукт
+ * Обновить товар
  * PUT /api/products/:id
  * Доступ: Admin
  * Content-Type: multipart/form-data
- * 
- * Параметры:
- * - id: ID товара (число в URL)
- * 
- * Body: (все поля опциональны, передавайте только те что нужно изменить)
- * - name: "Новое название" (опционально)
- * - description: "Новое описание" (опционально)
- * - purchase_price: 120 (опционально)
- * - retail_price: 250 (опционально)
- * - discount_price: 200 (опционально)
- * - brand_id: 2 (опционально)
- * - category_id: 3 (опционально)
- * - supplier_id: 2 (опционально)
- * - product_type: "Сыворотка" (опционально)
- * - target_audience: "female" (опционально)
- * - skin_type: "Жирная кожа" (опционально)
- * - weight_grams: 150 (опционально)
- * - length_cm: 12 (опционально)
- * - width_cm: 12 (опционально)
- * - height_cm: 12 (опционально)
- * - is_active: false (опционально)
- * - is_featured: true (опционально)
- * - is_new: false (опционально)
- * - is_bestseller: true (опционально)
- * - attributes: '{"ingredients": "Новый состав"}' (опционально, объединяется с существующими атрибутами)
- * - meta_title: "Новый SEO заголовок" (опционально)
- * - meta_description: "Новое SEO описание" (опционально)
- * - stockQuantity: 20 (опционально)
- * 
- * Files:
- * - mainImage: новый файл главного изображения (опционально, 1 файл, заменяет старое изображение)
- * - gallery: новые файлы для галереи (опционально, до 2 файлов, ПОЛНОСТЬЮ заменяет старую галерею)
- * 
- * Примечание:
- * - Если передаётся новый mainImage - старое изображение удаляется из S3
- * - Если передаётся новая gallery - вся старая галерея удаляется из S3
- * - attributes объединяются с существующими (не заменяют полностью)
- * - slug автоматически обновляется если изменяется name
- * 
- * Ответ: объект обновлённого товара (из admin_product_view)
+ *
+ * Параметры URL:
+ * - id: число, ID товара
+ *
+ * Поля: те же что при создании, все опциональные.
+ * Передавай только те поля которые нужно изменить.
+ *
+ * Особенности:
+ * - discount_price "0" или "" — убирает скидку
+ * - attributes — объединяются с существующими, не заменяют полностью
+ * - mainImage — если передан, старое фото удаляется из хранилища
+ * - gallery — если переданы, вся старая галерея удаляется. Максимум 2 файла
+ * - name — при изменении slug обновляется автоматически
+ *
+ * Ответ 200: объект обновлённого товара
+ * Ответ 404: { "message": "Продукт не найден" }
  */
 router.put(
   '/:id',
@@ -318,20 +230,20 @@ router.put(
 );
 
 /**
- * Удалить продукт
+ * Удалить товар
  * DELETE /api/products/:id
  * Доступ: Admin
- * 
- * Параметры:
- * - id: ID товара (число в URL)
- * 
- * Действия при удалении:
- * - Удаляются все изображения товара из S3 (main_image_url и image_urls)
- * - Удаляются все записи из product_inventory для этого товара
- * - Удаляется запись товара из product_products
- * - Связанные данные (отзывы, корзина, wishlist) удаляются каскадно через ON DELETE CASCADE в БД
- * 
- * Ответ: статус 204 No Content (без тела ответа)
+ *
+ * Параметры URL:
+ * - id: число, ID товара
+ *
+ * При удалении:
+ * - Удаляются все изображения из S3
+ * - Удаляются записи из product_inventory
+ * - Каскадно удаляются: отзывы, корзина, wishlist
+ *
+ * Ответ 204: пустое тело
+ * Ответ 404: { "message": "Продукт не найден" }
  */
 router.delete(
   '/:id',
@@ -340,62 +252,23 @@ router.delete(
   productController.deleteProduct
 );
 
-// =====================================================================================================
-// ⚠️ КРИТИЧЕСКИ ВАЖНО: ДИНАМИЧЕСКИЙ МАРШРУТ ДОЛЖЕН БЫТЬ САМЫМ ПОСЛЕДНИМ!
-// =====================================================================================================
-// Этот маршрут использует динамический параметр :identifier
-// Если поставить его выше, он перехватит все запросы вроде /search, /admin/all, /export/pdf
-// Express подумает что "search", "admin", "export" это значения параметра identifier
-// И вызовет этот обработчик БЕЗ middleware authenticate, что приведёт к ошибкам
-// =====================================================================================================
-
 /**
- * Получить продукт по идентификатору (id или slug)
+ * Получить один товар по ID или slug
  * GET /api/products/:identifier
- * Доступ: Публичный
- * 
- * Параметры:
- * - identifier: ID товара (число) или slug товара (строка)
- * 
+ * Доступ: Public
+ *
+ * Параметры URL:
+ * - identifier: число (ID) или строка (slug)
+ *
  * Примеры:
- * - GET /api/products/123 - получить товар с id = 123
- * - GET /api/products/krem-dlya-lica - получить товар со slug = "krem-dlya-lica"
- * 
- * Особенности:
- * - Возвращает данные из product_view (БЕЗ закупочной цены)
- * - Показывает только активные товары (is_active = true)
- * - Если товар не найден - ошибка 404
- * 
- * Ответ:
- * {
- *   "id": 1,
- *   "name": "Название товара",
- *   "slug": "nazvanie-tovara",
- *   "description": "Описание",
- *   "price": 1000,
- *   "discountPrice": 800,
- *   "mainImageUrl": "https://...",
- *   "imageUrls": ["https://..."],
- *   "brand": "Бренд",
- *   "brandId": 1,
- *   "categoryName": "Категория",
- *   "categoryId": 1,
- *   "sku": "SKU-123",
- *   "rating": 4.5,
- *   "reviewCount": 10,
- *   "stockQuantity": 50,
- *   "inStock": true,
- *   "isFeatured": false,
- *   "isNew": true,
- *   "isBestseller": false,
- *   "skinType": "Все типы",
- *   "targetAudience": "unisex",
- *   "ingredients": "Состав",
- *   "usage": "Применение",
- *   "variants": [{"name": "Объём", "value": "50мл"}],
- *   "createdAt": "2025-01-15T10:30:00.000Z",
- *   "updatedAt": "2025-02-20T15:45:00.000Z"
- * }
+ * - GET /api/products/123
+ * - GET /api/products/krem-dlya-lica
+ *
+ * Только активные товары (is_active = true).
+ * Без закупочной цены.
+ *
+ * Ответ 200: объект товара
+ * Ответ 404: { "message": "Продукт не найден" }
  */
 router.get('/:identifier', (req, res, next) =>
   productController.getProductByIdentifier(req, res, next, false)

@@ -48,7 +48,7 @@ const getAllProductsForExport = async (filters = {}) => {
     paramIndex++;
   }
   if (filters.inStock) {
-    query += ` AND pi.quantity > 0`;
+    query += ` AND COALESCE(pi.quantity, 0) > 0`;
   }
 
   query += ` ORDER BY p.id DESC`;

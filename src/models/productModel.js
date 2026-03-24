@@ -244,7 +244,7 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
     data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
     data.attributes = JSON.stringify(data.attributes);
 
-    if (data.discount_price === 0) {
+    if (data.discount_price === 0 || data.discount_price === '0' || data.discount_price === '') {
         data.discount_price = null;
     }
 

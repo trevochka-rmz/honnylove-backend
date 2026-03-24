@@ -133,48 +133,95 @@ const getProductByIdentifier = async (identifier, isAdmin = false) => {
 
 // Создать новый продукт с валидацией
 const createProduct = async (data, mainImageFile, galleryFiles) => {
-  const { error } = productSchema.validate(data);
-  if (error) throw new AppError(error.details[0].message, 400);
-  
-  if (data.attributes && typeof data.attributes === 'string') {
+  const parsed = {
+    ...data,
+    purchase_price: data.purchase_price ? Number(data.purchase_price) : undefined,
+    retail_price: data.retail_price ? Number(data.retail_price) : undefined,
+    discount_price: data.discount_price !== undefined && data.discount_price !== ''
+      ? Number(data.discount_price)
+      : null,
+    brand_id: data.brand_id ? Number(data.brand_id) : undefined,
+    category_id: data.category_id ? Number(data.category_id) : undefined,
+    supplier_id: data.supplier_id ? Number(data.supplier_id) : null,
+    weight_grams: data.weight_grams ? Number(data.weight_grams) : undefined,
+    length_cm: data.length_cm ? Number(data.length_cm) : undefined,
+    width_cm: data.width_cm ? Number(data.width_cm) : undefined,
+    height_cm: data.height_cm ? Number(data.height_cm) : undefined,
+    stockQuantity: data.stockQuantity ? Number(data.stockQuantity) : undefined,
+    is_active: data.is_active === 'true' || data.is_active === true,
+    is_featured: data.is_featured === 'true' || data.is_featured === true,
+    is_new: data.is_new === 'true' || data.is_new === true,
+    is_bestseller: data.is_bestseller === 'true' || data.is_bestseller === true,
+  };
+
+  // Парсим attributes ДО валидации — Joi ожидает объект, а не строку
+  if (parsed.attributes && typeof parsed.attributes === 'string') {
     try {
-      data.attributes = JSON.parse(data.attributes);
-    } catch (error) {
-      data.attributes = {};
+      parsed.attributes = JSON.parse(parsed.attributes);
+    } catch {
+      parsed.attributes = {};
     }
   }
 
+  const { error } = productSchema.validate(parsed);
+  if (error) throw new AppError(error.details[0].message, 400);
+
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
-      galleryFiles.forEach(file => validateImageFile(file));
+    galleryFiles.forEach(file => validateImageFile(file));
   }
-  
-  return productModel.createProduct(data, mainImageFile, galleryFiles);
+
+  return productModel.createProduct(parsed, mainImageFile, galleryFiles);
 };
+
 
 // Обновить продукт с валидацией
 const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
-  const { error } = updateSchema.validate(data, { allowUnknown: true });
-  if (error) throw new AppError(error.details[0].message, 400);
-  
-  if (data.attributes && typeof data.attributes === 'string') {
+  const parsed = { ...data };
+
+  if (data.purchase_price !== undefined) parsed.purchase_price = Number(data.purchase_price);
+  if (data.retail_price !== undefined) parsed.retail_price = Number(data.retail_price);
+  if (data.discount_price !== undefined && data.discount_price !== '') {
+    parsed.discount_price = Number(data.discount_price);
+  } else if (data.discount_price === '' || data.discount_price === '0') {
+    parsed.discount_price = null;
+  }
+  if (data.brand_id !== undefined) parsed.brand_id = Number(data.brand_id);
+  if (data.category_id !== undefined) parsed.category_id = Number(data.category_id);
+  if (data.supplier_id !== undefined) parsed.supplier_id = data.supplier_id ? Number(data.supplier_id) : null;
+  if (data.weight_grams !== undefined) parsed.weight_grams = data.weight_grams ? Number(data.weight_grams) : null;
+  if (data.length_cm !== undefined) parsed.length_cm = data.length_cm ? Number(data.length_cm) : null;
+  if (data.width_cm !== undefined) parsed.width_cm = data.width_cm ? Number(data.width_cm) : null;
+  if (data.height_cm !== undefined) parsed.height_cm = data.height_cm ? Number(data.height_cm) : null;
+  if (data.stockQuantity !== undefined) parsed.stockQuantity = Number(data.stockQuantity);
+  if (data.is_active !== undefined) parsed.is_active = data.is_active === 'true' || data.is_active === true;
+  if (data.is_featured !== undefined) parsed.is_featured = data.is_featured === 'true' || data.is_featured === true;
+  if (data.is_new !== undefined) parsed.is_new = data.is_new === 'true' || data.is_new === true;
+  if (data.is_bestseller !== undefined) parsed.is_bestseller = data.is_bestseller === 'true' || data.is_bestseller === true;
+
+  // Парсим attributes ДО валидации
+  if (parsed.attributes && typeof parsed.attributes === 'string') {
     try {
-      data.attributes = JSON.parse(data.attributes);
-    } catch (error) {
-      data.attributes = {};
+      parsed.attributes = JSON.parse(parsed.attributes);
+    } catch {
+      parsed.attributes = {};
     }
   }
 
+  const { error } = updateSchema.validate(parsed, { allowUnknown: true });
+  if (error) throw new AppError(error.details[0].message, 400);
+
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
-      galleryFiles.forEach(file => validateImageFile(file));
+    galleryFiles.forEach(file => validateImageFile(file));
   }
-  
+
   const product = await getProductByIdentifier(id);
   if (!product) throw new AppError('Продукт не найден', 404);
-  
-  return productModel.updateProduct(id, data, mainImageFile, galleryFiles);
+
+  return productModel.updateProduct(id, parsed, mainImageFile, galleryFiles);
 };
+
 
 // Удалить продукт
 const deleteProduct = async (id) => {
