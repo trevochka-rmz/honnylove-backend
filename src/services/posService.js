@@ -20,6 +20,7 @@ const createPOSOrderSchema = Joi.object({
           'number.base': 'ID товара должен быть числом',
           'any.required': 'Укажите ID товара'
         }),
+        variant_id: Joi.number().integer().positive().allow(null).optional(), 
       quantity: Joi.number().integer().min(1).required()
         .messages({
           'number.min': 'Количество должно быть минимум 1',
@@ -125,7 +126,8 @@ const createPOSOrder = async (cashierId, orderData) => {
       const inventoryCheck = await orderModel.checkInventory(
         client,
         item.product_id,
-        item.quantity
+        item.quantity,
+        item.variant_id || null  
       );
 
       if (!inventoryCheck.sufficient) {
@@ -197,13 +199,16 @@ const createPOSOrder = async (cashierId, orderData) => {
         product_id: item.product_id,
         quantity: item.quantity,
         price: item.price,
-        discount_price: item.discount_price
+        discount_price: item.discount_price,
+        variant_id: item.variant_id || null,        // ← добавить
+        variant_snapshot: item.variant_snapshot || null,
       });
 
       await orderModel.decreaseInventory(
         client,
         item.product_id,
-        item.quantity
+        item.quantity,
+        item.variant_id || null 
       );
     }
 

@@ -4,13 +4,14 @@ const db = require('../config/db');
 // Получить товары из корзины пользователя с полной информацией о товарах
 const getCartItemsWithDetails = async (client, userId) => {
   const res = await client.query(`
-    SELECT 
+    SELECT
       ci.id as cart_item_id,
       ci.user_id,
       ci.product_id,
+      ci.variant_id,
       ci.quantity as cart_quantity,
       ci.created_at as added_to_cart_at,
-      
+
       pp.id,
       pp.name,
       pp.sku,
@@ -19,38 +20,67 @@ const getCartItemsWithDetails = async (client, userId) => {
       pp.discount_price,
       pp.main_image_url,
       pp.is_active,
-      
+
       pb.name as brand_name,
       pc.name as category_name,
-      
-      CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
+
+      -- Если есть вариант с переопределённой ценой — берём её, иначе цену товара
+      CASE
+        WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+          THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+          THEN pp.discount_price
+        ELSE pp.retail_price
       END as final_price,
-      (ci.quantity * CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END) as line_total,
-      
+
+      CASE
+        WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+          THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+          THEN pp.discount_price
+        ELSE pp.retail_price
+      END * ci.quantity as line_total,
+
+      -- Остаток на складе: если есть вариант — по варианту, иначе по продукту
       COALESCE(
-        (SELECT SUM(quantity) 
-         FROM product_inventory pi 
+        (SELECT SUM(pi.quantity)
+         FROM product_inventory pi
          JOIN product_locations pl ON pi.location_id = pl.id
-         WHERE pi.product_id = pp.id AND pl.is_active = true),
+         WHERE
+           CASE
+             WHEN ci.variant_id IS NOT NULL
+               THEN pi.variant_id = ci.variant_id
+             ELSE pi.product_id = pp.id AND pi.variant_id IS NULL
+           END
+           AND pl.is_active = true
+        ),
         0
-      ) as available_stock
-      
+      ) as available_stock,
+
+      -- Снимок варианта для сохранения в заказе
+      CASE
+        WHEN ci.variant_id IS NOT NULL
+          THEN jsonb_build_object(
+            'id', pv.id,
+            'name', pv.name,
+            'options', pv.options,
+            'sku', pv.sku,
+            'priceOverride', pv.price_override_rf,
+            'discountOverride', pv.discount_override_rf
+          )
+        ELSE NULL
+      END as variant_snapshot
+
     FROM cart_items ci
     INNER JOIN product_products pp ON ci.product_id = pp.id
     LEFT JOIN product_brands pb ON pp.brand_id = pb.id
     LEFT JOIN product_categories pc ON pp.category_id = pc.id
+    LEFT JOIN product_variants pv ON ci.variant_id = pv.id
     WHERE ci.user_id = $1
       AND pp.is_active = true
     ORDER BY ci.created_at DESC
   `, [userId]);
-  
+
   return res.rows;
 };
 
@@ -94,21 +124,25 @@ const createOrder = async (client, orderData) => {
 
 // Добавить товарную позицию в заказ
 const addOrderItem = async (client, orderItemData) => {
-  const { order_id, product_id, quantity, price, discount_price = null } = orderItemData;
-  
+  const {
+    order_id,
+    product_id,
+    quantity,
+    price,
+    discount_price = null,
+    variant_id = null,
+    variant_snapshot = null,
+  } = orderItemData;
+
   const res = await client.query(`
     INSERT INTO order_items (
-      order_id, 
-      product_id, 
-      quantity, 
-      price, 
-      discount_price,
-      created_at
+      order_id, product_id, quantity, price, discount_price,
+      variant_id, variant_snapshot, created_at
     )
-    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
     RETURNING *
-  `, [order_id, product_id, quantity, price, discount_price]);
-  
+  `, [order_id, product_id, quantity, price, discount_price, variant_id, variant_snapshot]);
+
   return res.rows[0];
 };
 
@@ -532,73 +566,90 @@ const updateOrderItemQuantity = async (client, orderItemId, newQuantity) => {
 };
 
 // Проверить наличие товара на складе
-const checkInventory = async (client, productId, requiredQuantity) => {
-  const res = await client.query(`
-    SELECT 
-      COALESCE(SUM(pi.quantity), 0) as total_available
-    FROM product_inventory pi
-    INNER JOIN product_locations pl ON pi.location_id = pl.id
-    WHERE pi.product_id = $1 
-      AND pl.is_active = true
-  `, [productId]);
-  
+const checkInventory = async (client, productId, requiredQuantity, variantId = null) => {
+  let queryText;
+  let queryParams;
+
+  if (variantId) {
+    // Проверяем остаток конкретного варианта
+    queryText = `
+      SELECT COALESCE(SUM(pi.quantity), 0) as total_available
+      FROM product_inventory pi
+      INNER JOIN product_locations pl ON pi.location_id = pl.id
+      WHERE pi.variant_id = $1 AND pl.is_active = true
+    `;
+    queryParams = [variantId];
+  } else {
+    // Проверяем остаток товара без варианта
+    queryText = `
+      SELECT COALESCE(SUM(pi.quantity), 0) as total_available
+      FROM product_inventory pi
+      INNER JOIN product_locations pl ON pi.location_id = pl.id
+      WHERE pi.product_id = $1 AND pi.variant_id IS NULL AND pl.is_active = true
+    `;
+    queryParams = [productId];
+  }
+
+  const res = await client.query(queryText, queryParams);
   const available = parseInt(res.rows[0].total_available, 10);
-  
+
   return {
     available,
     sufficient: available >= requiredQuantity,
-    shortage: Math.max(0, requiredQuantity - available)
+    shortage: Math.max(0, requiredQuantity - available),
   };
 };
 
 // Уменьшить количество товара на складе при резервировании товара
-const decreaseInventory = async (client, productId, quantity) => {
+const decreaseInventory = async (client, productId, quantity, variantId = null) => {
+  const whereClause = variantId
+    ? `pi.variant_id = $1`
+    : `pi.product_id = $1 AND pi.variant_id IS NULL`;
+
+  const lookupParam = variantId || productId;
+
   const warehousesRes = await client.query(`
     SELECT pi.id, pi.quantity, pi.location_id, pl.name as location_name
     FROM product_inventory pi
     INNER JOIN product_locations pl ON pi.location_id = pl.id
-    WHERE pi.product_id = $1 
-      AND pl.is_active = true 
-      AND pi.quantity > 0
+    WHERE ${whereClause} AND pl.is_active = true AND pi.quantity > 0
     ORDER BY pi.quantity DESC
-  `, [productId]);
-  
+  `, [lookupParam]);
+
   if (warehousesRes.rowCount === 0) {
     throw new Error('Товар не найден на складах');
   }
-  
+
   const totalAvailable = warehousesRes.rows.reduce((sum, w) => sum + w.quantity, 0);
   if (totalAvailable < quantity) {
     throw new Error(`Недостаточно товара. Доступно: ${totalAvailable}, требуется: ${quantity}`);
   }
-  
+
   let remaining = quantity;
   const decreasedFrom = [];
-  
+
   for (const warehouse of warehousesRes.rows) {
     if (remaining === 0) break;
-    
     const toTake = Math.min(warehouse.quantity, remaining);
-    
+
     await client.query(`
       UPDATE product_inventory
       SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
       WHERE id = $2
     `, [toTake, warehouse.id]);
-    
+
     decreasedFrom.push({
       location_id: warehouse.location_id,
       location_name: warehouse.location_name,
-      quantity: toTake
+      quantity: toTake,
     });
-    
     remaining -= toTake;
   }
-  
+
   return {
     success: true,
     decreased_from: decreasedFrom,
-    total_decreased: quantity
+    total_decreased: quantity,
   };
 };
 
@@ -682,20 +733,19 @@ const deleteOrder = async (client, orderId) => {
 
 // Получить выбранные товары из корзины пользователя
 const getSelectedCartItemsWithDetails = async (client, userId, selectedItemIds) => {
-  if (!selectedItemIds || selectedItemIds.length === 0) {
-    return [];
-  }
+  if (!selectedItemIds || selectedItemIds.length === 0) return [];
 
   const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
-  
+
   const res = await client.query(`
-    SELECT 
+    SELECT
       ci.id as cart_item_id,
       ci.user_id,
       ci.product_id,
+      ci.variant_id,
       ci.quantity as cart_quantity,
       ci.created_at as added_to_cart_at,
-      
+
       pp.id,
       pp.name,
       pp.sku,
@@ -704,39 +754,65 @@ const getSelectedCartItemsWithDetails = async (client, userId, selectedItemIds) 
       pp.discount_price,
       pp.main_image_url,
       pp.is_active,
-      
+
       pb.name as brand_name,
       pc.name as category_name,
-      
-      CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
+
+      CASE
+        WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+          THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+          THEN pp.discount_price
+        ELSE pp.retail_price
       END as final_price,
-      (ci.quantity * CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END) as line_total,
-      
+
+      CASE
+        WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+          THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+          THEN pp.discount_price
+        ELSE pp.retail_price
+      END * ci.quantity as line_total,
+
       COALESCE(
-        (SELECT SUM(quantity) 
-         FROM product_inventory pi 
+        (SELECT SUM(pi.quantity)
+         FROM product_inventory pi
          JOIN product_locations pl ON pi.location_id = pl.id
-         WHERE pi.product_id = pp.id AND pl.is_active = true),
+         WHERE
+           CASE
+             WHEN ci.variant_id IS NOT NULL
+               THEN pi.variant_id = ci.variant_id
+             ELSE pi.product_id = pp.id AND pi.variant_id IS NULL
+           END
+           AND pl.is_active = true
+        ),
         0
-      ) as available_stock
-      
+      ) as available_stock,
+
+      CASE
+        WHEN ci.variant_id IS NOT NULL
+          THEN jsonb_build_object(
+            'id', pv.id,
+            'name', pv.name,
+            'options', pv.options,
+            'sku', pv.sku,
+            'priceOverride', pv.price_override_rf,
+            'discountOverride', pv.discount_override_rf
+          )
+        ELSE NULL
+      END as variant_snapshot
+
     FROM cart_items ci
     INNER JOIN product_products pp ON ci.product_id = pp.id
     LEFT JOIN product_brands pb ON pp.brand_id = pb.id
     LEFT JOIN product_categories pc ON pp.category_id = pc.id
-    WHERE ci.user_id = $1 
+    LEFT JOIN product_variants pv ON ci.variant_id = pv.id
+    WHERE ci.user_id = $1
       AND ci.id IN (${placeholders})
       AND pp.is_active = true
     ORDER BY ci.created_at DESC
   `, [userId, ...selectedItemIds]);
-  
+
   return res.rows;
 };
 

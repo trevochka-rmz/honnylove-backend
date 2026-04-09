@@ -234,14 +234,17 @@ const createOrder = async (userId, orderData) => {
         quantity: item.cart_quantity,
         price: item.retail_price,
         discount_price: (item.discount_price && Number(item.discount_price) > 0)
-        ? item.discount_price
-        : null,
+          ? item.discount_price
+          : null,
+        variant_id: item.variant_id || null,
+        variant_snapshot: item.variant_snapshot || null,
       });
       
       await orderModel.decreaseInventory(
-        client, 
-        item.product_id, 
-        item.cart_quantity
+        client,
+        item.product_id,
+        item.cart_quantity,
+        item.variant_id || null  // ← передаём variant_id!
       );
     }
     
@@ -463,14 +466,22 @@ const createAdminOrder = async (adminUserId, orderData) => {
     for (const item of items) {
       await orderModel.addOrderItem(client, {
         order_id: newOrder.id,
-        product_id: item.id,
+        product_id: item.product_id,
         quantity: item.cart_quantity,
         price: item.retail_price,
         discount_price: (item.discount_price && Number(item.discount_price) > 0)
-        ? item.discount_price
-        : null,
+          ? item.discount_price
+          : null,
+        variant_id: item.variant_id || null,
+        variant_snapshot: item.variant_snapshot || null,
       });
-      await orderModel.decreaseInventory(client, item.id, item.cart_quantity);
+      
+      await orderModel.decreaseInventory(
+        client,
+        item.product_id,
+        item.cart_quantity,
+        item.variant_id || null  // ← передаём variant_id!
+      );
     }
 
     // 7. Добавляем запись в историю статусов (от имени админа)

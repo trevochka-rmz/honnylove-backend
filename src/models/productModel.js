@@ -1,9 +1,77 @@
 // src/models/productModel.js
 const db = require('../config/db');
-const { uploadImage, deleteEntityImages, deleteImageByUrl, uploadProductGalleryImages, deleteProductGallery } = require('../utils/s3Uploader');
+const {
+    uploadImage,
+    deleteEntityImages,
+    deleteImageByUrl,
+    uploadProductGalleryImages,
+    deleteProductGallery,
+    deleteVariantGallery,
+} = require('../utils/s3Uploader');
 
+// ─────────────────────────────────────────────────────────────────
+// Выбор view в зависимости от региона и роли
+//
+//  region='ru' (по умолчанию):
+//    публичный  → product_view       (цены RUB, inStock = location_id=1)
+//    админ      → admin_product_view  (все цены RUB+KGS, оба остатка)
+//
+//  region='kg':
+//    публичный  → product_view_kg    (цены KGS, inStock = location_id=4)
+//    админ      → admin_product_view  (admin всегда видит всё)
+//
+// ─────────────────────────────────────────────────────────────────
+const resolveView = (isAdmin, region = 'ru') => {
+    if (isAdmin) return 'admin_product_view';
+    return region === 'kg' ? 'product_view_kg' : 'product_view';
+};
+
+// admin_product_view не имеет "inStock" — только "inStockRu" / "inStockKg" / "inStockTotal"
+const resolveInStockField = (isAdmin) => {
+    return isAdmin ? '"inStockTotal"' : '"inStock"';
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Вспомогательная: upsert инвентаря варианта по локации
+// ─────────────────────────────────────────────────────────────────
+const upsertVariantInventory = async (variantId, productId, quantity, locationId = 1) => {
+    const { rows } = await db.query(
+        `SELECT id FROM product_inventory WHERE variant_id = $1 AND location_id = $2`,
+        [variantId, locationId]
+    );
+    if (rows.length > 0) {
+        await db.query(
+            `UPDATE product_inventory
+             SET quantity = $1, last_updated = CURRENT_TIMESTAMP
+             WHERE variant_id = $2 AND location_id = $3`,
+            [quantity, variantId, locationId]
+        );
+    } else {
+        await db.query(
+            `INSERT INTO product_inventory
+                (product_id, location_id, variant_id, quantity, min_stock_level, last_updated)
+             VALUES ($1, $2, $3, $4, 0, CURRENT_TIMESTAMP)`,
+            [productId, locationId, variantId, quantity]
+        );
+    }
+};
+
+// Нулевые числовые поля → NULL
+const nullifyZero = (val) =>
+    val === '' || val === '0' || val === 0 || val == null ? null : val;
+
+// Нормализация: bigint из postgres → number JS
+const normalizeProduct = (product) => {
+    if (!product) return null;
+    ['stockQuantity', 'stockQuantityRu', 'stockQuantityKg', 'stockQuantityTotal'].forEach(f => {
+        if (product[f] !== undefined) product[f] = Number(product[f]) || 0;
+    });
+    return product;
+};
+
+// ─────────────────────────────────────────────────────────────────
 // Получить все продукты с пагинацией и фильтрами
-// Улучшенный полнотекстовый поиск с поддержкой русского языка
+// ─────────────────────────────────────────────────────────────────
 const getAllProducts = async ({
     page = 1,
     limit = 9,
@@ -18,51 +86,47 @@ const getAllProducts = async ({
     isOnSale,
     sort = 'id_desc',
     isAdmin = false,
+    region = 'ru',
 }) => {
-    // Выбираем view в зависимости от isAdmin
-    const viewName = isAdmin ? 'admin_product_view' : 'product_view';
+    const viewName     = resolveView(isAdmin, region);
+    const inStockField = resolveInStockField(isAdmin);
 
     let baseQuery = `FROM ${viewName}`;
-    const params = [];
-    let where = '';
-    let cte = '';
+    const params  = [];
+    let where     = '';
+    let cte       = '';
 
-    // CTE для подкатегорий (рекурсивно собираем все вложенные категории)
+    // Рекурсивный обход подкатегорий
     if (categoryId) {
         cte = `
             WITH RECURSIVE subcats AS (
                 SELECT id FROM product_categories WHERE id = $${params.length + 1}
-                UNION
-                SELECT c.id FROM product_categories c 
+                UNION ALL
+                SELECT c.id FROM product_categories c
                 JOIN subcats s ON c.parent_id = s.id
             )
         `;
         params.push(categoryId);
-        where += (where ? ' AND' : '') + ` category_id IN (SELECT id FROM subcats)`;
+        where += ` category_id IN (SELECT id FROM subcats)`;
     }
 
-    // Обработка нескольких брендов (можно передать brandId=1,2,3)
-    let brandIds = [];
+    // Фильтр по брендам ("1,2,3")
     if (brandId) {
-        const idsStr = brandId.toString();
-        brandIds = idsStr.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
-    }
-    if (brandIds.length > 0) {
-        where += (where ? ' AND' : '') + ` brand_id = ANY($${params.length + 1}::int[])`;
-        params.push(`{${brandIds.join(',')}}`);
+        const brandIds = brandId.toString().split(',')
+            .map(id => parseInt(id.trim(), 10))
+            .filter(id => !isNaN(id));
+        if (brandIds.length > 0) {
+            where += (where ? ' AND' : '') + ` brand_id = ANY($${params.length + 1}::int[])`;
+            params.push(`{${brandIds.join(',')}}`);
+        }
     }
 
-    // ====================== УЛУЧШЕННЫЙ ПОЛНОТЕКСТОВЫЙ ПОИСК ======================
-    // Используем ТОЛЬКО те колонки, которые реально существуют в product_view и admin_product_view
-    let searchCondition = '';
-    let rankExpression = '1'; // по умолчанию без ранжирования
-
+    // Полнотекстовый поиск
+    let rankExpression = '1';
     if (search && search.trim()) {
         const searchTerm = search.trim();
-
-        // Полнотекстовый поиск по всем доступным полям
-        searchCondition = `
-            to_tsvector('russian', 
+        where += (where ? ' AND ' : '') + `
+            to_tsvector('russian',
                 COALESCE(name, '') || ' ' ||
                 COALESCE(description, '') || ' ' ||
                 COALESCE(brand, '') || ' ' ||
@@ -71,19 +135,16 @@ const getAllProducts = async ({
                 COALESCE(skin_type, '') || ' ' ||
                 COALESCE(target_audience, '') || ' ' ||
                 COALESCE(ingredients, '') || ' ' ||
-                COALESCE(usage, '') || ' ' ||
-                COALESCE(variants::text, '')
+                COALESCE(usage, '')
             ) @@ plainto_tsquery('russian', $${params.length + 1})
         `;
         params.push(searchTerm);
-
-        // Ранжирование по релевантности (используем основные поля)
         rankExpression = `
             ts_rank(
-                to_tsvector('russian', 
-                    COALESCE(name, '') || ' ' || 
+                to_tsvector('russian',
+                    COALESCE(name, '') || ' ' ||
                     COALESCE(description, '') || ' ' ||
-                    COALESCE(brand, '') || ' ' || 
+                    COALESCE(brand, '') || ' ' ||
                     COALESCE(sku, '') || ' ' ||
                     COALESCE(ingredients, '')
                 ),
@@ -92,29 +153,17 @@ const getAllProducts = async ({
         `;
     }
 
-    if (searchCondition) {
-        where += (where ? ' AND ' : '') + searchCondition;
+    // Цена (view уже отдаёт нужную валюту через поля price / discountPrice)
+    const priceExpr = `CASE WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 THEN "discountPrice" ELSE price END`;
+    if (minPrice) {
+        where += (where ? ' AND' : '') + ` ${priceExpr} >= $${params.length + 1}`;
+        params.push(minPrice);
+    }
+    if (maxPrice) {
+        where += (where ? ' AND' : '') + ` ${priceExpr} <= $${params.length + 1}`;
+        params.push(maxPrice);
     }
 
-    // ====================== Остальные фильтры ======================
-    if (minPrice) {
-        where += (where ? ' AND' : '') + `
-          CASE 
-            WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
-            THEN "discountPrice" 
-            ELSE price 
-          END >= $${params.length + 1}`;
-        params.push(minPrice);
-      }
-      if (maxPrice) {
-        where += (where ? ' AND' : '') + `
-          CASE 
-            WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
-            THEN "discountPrice" 
-            ELSE price 
-          END <= $${params.length + 1}`;
-        params.push(maxPrice);
-      }
     if (isFeatured !== undefined) {
         where += (where ? ' AND' : '') + ` "isFeatured" = $${params.length + 1}`;
         params.push(isFeatured);
@@ -128,16 +177,10 @@ const getAllProducts = async ({
         params.push(isBestseller);
     }
     if (isOnSale !== undefined) {
-        if (isOnSale) {
-            where += (where ? ' AND' : '') +
-                ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`;
-        } else {
-            where += (where ? ' AND' : '') +
-                ` ("discountPrice" IS NULL OR "discountPrice" = 0)`;
-        }
+        where += (where ? ' AND' : '') + (isOnSale
+            ? ` "discountPrice" IS NOT NULL AND "discountPrice" > 0`
+            : ` ("discountPrice" IS NULL OR "discountPrice" = 0)`);
     }
-
-    // Если выбрана случайная новинка — принудительно фильтруем isNew=true
     if (sort === 'new_random' && isNew === undefined) {
         where += (where ? ' AND' : '') + ` "isNew" = $${params.length + 1}`;
         params.push(true);
@@ -145,129 +188,114 @@ const getAllProducts = async ({
 
     if (where) baseQuery += ' WHERE' + where;
 
-    // ====================== СОРТИРОВКА ======================
-    let secondarySort = 'id DESC';
-
+    // Сортировка
+    let orderBy;
     switch (sort) {
-        case 'popularity':
-            secondarySort = '"reviewCount" DESC, id DESC';
-            break;
-        case 'price_asc':
-            secondarySort = `CASE 
-                WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
-                THEN "discountPrice" 
-                ELSE price 
-            END ASC, id DESC`;
-            break;
-        case 'price_desc':
-            secondarySort = `CASE 
-                WHEN "discountPrice" IS NOT NULL AND "discountPrice" > 0 
-                THEN "discountPrice" 
-                ELSE price 
-            END DESC, id DESC`;
-            break;
-        case 'rating':
-            secondarySort = 'rating DESC, id DESC';
-            break;
-        case 'new_random':
-            secondarySort = 'RANDOM()';
-            break;
-        case 'id_desc':
-            secondarySort = 'id DESC';
-            break;
-        case 'newest':
-            secondarySort = 'created_at DESC, id DESC';
-            break;
-        case 'relevance':
-            secondarySort = `${rankExpression} DESC, id DESC`;
-            break;
-        default:
-            secondarySort = 'id DESC';
+        case 'popularity':  orderBy = '"reviewCount" DESC, id DESC'; break;
+        case 'price_asc':   orderBy = `${priceExpr} ASC, id DESC`;  break;
+        case 'price_desc':  orderBy = `${priceExpr} DESC, id DESC`; break;
+        case 'rating':      orderBy = 'rating DESC, id DESC';        break;
+        case 'new_random':  orderBy = 'RANDOM()';                    break;
+        case 'newest':      orderBy = 'created_at DESC, id DESC';    break;
+        case 'relevance':   orderBy = `${rankExpression} DESC, id DESC`; break;
+        default:            orderBy = 'id DESC';
     }
 
-    // Если идёт поиск — всегда добавляем ранжирование по релевантности + наличие сверху
     const fullOrderBy = search
-        ? ` ORDER BY "inStock" DESC, ${rankExpression} DESC, ${secondarySort}`
-        : ` ORDER BY "inStock" DESC, ${secondarySort}`;
+        ? ` ORDER BY ${inStockField} DESC, ${rankExpression} DESC, ${orderBy}`
+        : ` ORDER BY ${inStockField} DESC, ${orderBy}`;
 
-    // ====================== Основной запрос с пагинацией ======================
-    const dataQuery = `${cte} SELECT * ${baseQuery}${fullOrderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    const dataParams = [...params, limit, (page - 1) * limit];
+    // ─── Список: НЕ включаем stockVariants (тяжёлый JSONB) ─────────────
+    // Выбираем только нужные для карточек товаров поля
+    const listColumns = `
+        id, name, description, slug,
+        price, "discountPrice",
+        brand, brand_id, brand_slug,
+        top_category_name, top_category_id, top_category_slug,
+        parent_category_name, parent_category_id, parent_category_slug,
+        category_name, category_id, category_slug, category_level,
+        subcategory, subcategory_id,
+        image, images,
+        ingredients, usage,
+        "isActive", "isNew", "isBestseller", "isFeatured",
+        rating, "reviewCount",
+        created_at, updated_at,
+        sku, product_type, target_audience, skin_type,
+        "variantCount"
+        ${isAdmin ? `, "purchasePrice", "priceKg", "discountPriceKg",
+            supplier_id, weight_grams, length_cm, width_cm, height_cm,
+            meta_title, meta_description,
+            "inStockRu", "inStockKg", "inStockTotal",
+            "stockQuantityRu", "stockQuantityKg", "stockQuantityTotal"` : ''}
+        ${!isAdmin ? `, "inStock", "stockQuantity"` : ''}
+    `;
 
-    const { rows: products } = await db.query(dataQuery, dataParams);
-
-    // Подсчёт общего количества
+    const dataQuery  = `${cte} SELECT ${listColumns} ${baseQuery}${fullOrderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const countQuery = `${cte} SELECT COUNT(*) ${baseQuery}`;
-    const { rows: countRows } = await db.query(countQuery, params);
-    const total = parseInt(countRows[0].count, 10);
 
-    const pages = limit > 0 ? Math.ceil(total / limit) : 0;
-    const hasMore = page < pages;
+    const [dataResult, countResult] = await Promise.all([
+        db.query(dataQuery, [...params, limit, (page - 1) * limit]),
+        db.query(countQuery, params),
+    ]);
 
-    // Приводим stockQuantity к числу
-    products.forEach(product => {
-        if (product.stockQuantity !== undefined) {
-            product.stockQuantity = Number(product.stockQuantity) || 0;
-        }
-    });
+    const products = dataResult.rows.map(normalizeProduct);
+    const total    = parseInt(countResult.rows[0].count, 10);
+    const pages    = limit > 0 ? Math.ceil(total / limit) : 0;
 
-    return { products, total, page, pages, limit, hasMore };
+    return { products, total, page, pages, limit, hasMore: page < pages };
 };
 
-// Получить продукт по идентификатору (id или slug)
-const getProductByIdentifier = async (identifier, isAdmin = false) => {
-    const viewName = isAdmin ? 'admin_product_view' : 'product_view';
-    let query;
-    let param = identifier;
-    const idNum = parseInt(identifier, 10);
-    if (!isNaN(idNum)) {
-        query = `SELECT * FROM ${viewName} WHERE id = $1`;
-        param = idNum;
-    } else {
-        query = `SELECT * FROM ${viewName} WHERE slug = $1`;
-    }
-    const { rows } = await db.query(query, [param]);
-    let product = rows[0];
-    if (product && product.stockQuantity !== undefined) {
-        product.stockQuantity = Number(product.stockQuantity) || 0;
-    }
-    return product;
+// ─────────────────────────────────────────────────────────────────
+// Получить один продукт (полные данные включая stockVariants)
+// ─────────────────────────────────────────────────────────────────
+const getProductByIdentifier = async (identifier, isAdmin = false, region = 'ru') => {
+    const viewName = resolveView(isAdmin, region);
+    const idNum    = parseInt(identifier, 10);
+    const isId     = !isNaN(idNum);
+
+    const { rows } = await db.query(
+        `SELECT * FROM ${viewName} WHERE ${isId ? 'id' : 'slug'} = $1`,
+        [isId ? idNum : identifier]
+    );
+
+    return rows[0] ? normalizeProduct(rows[0]) : null;
 };
 
-// Создать новый продукт
+// ─────────────────────────────────────────────────────────────────
+// Создать продукт + дефолтный вариант "Стандарт"
+// ─────────────────────────────────────────────────────────────────
 const createProduct = async (data, mainImageFile, galleryFiles) => {
     const defaultAttributes = {
         usage: 'Скоро будет',
-        variants: [{ name: 'Объём', value: '50мл' }],
+        variants: [],
         ingredients: 'Скоро будет',
     };
-    data.attributes = { ...defaultAttributes, ...(data.attributes || {}) };
-    data.attributes = JSON.stringify(data.attributes);
+    data.attributes = JSON.stringify({ ...defaultAttributes, ...(data.attributes || {}) });
 
-    if (data.discount_price === 0 || data.discount_price === '0' || data.discount_price === '') {
-        data.discount_price = null;
-    }
+    data.discount_price    = nullifyZero(data.discount_price);
+    data.retail_price_kg   = nullifyZero(data.retail_price_kg);
+    data.discount_price_kg = nullifyZero(data.discount_price_kg);
 
-    const stockQuantity = data.stockQuantity;
+    const stockQuantityRu = parseInt(data.stockQuantity   ?? 0, 10);
+    const stockQuantityKg = parseInt(data.stockQuantityKg ?? 0, 10);
     delete data.stockQuantity;
+    delete data.stockQuantityKg;
 
-    const fields = Object.keys(data).join(', ');
-    const values = Object.values(data);
-    const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
+    const fields       = Object.keys(data).join(', ');
+    const values       = Object.values(data);
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
 
     const { rows } = await db.query(
         `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
         values
     );
+    const productId = rows[0].id;
 
-    const created = rows[0];
-    const productId = created.id;
-
-    let mainImageUrl = `/uploads/products/${productId}/main.jpg`;
-    let galleryUrls = [
-        `/uploads/products/${productId}/gallery/1.jpg`,
-        `/uploads/products/${productId}/gallery/2.jpg`,
-    ];
+    // ── Изображения продукта ─────────────────────────────────────
+    // S3 путь: uploads/products/{productId}/main.jpg
+    //          uploads/products/{productId}/gallery/1.jpg
+    let mainImageUrl = null;
+    let galleryUrls  = [];
 
     if (mainImageFile) {
         mainImageUrl = await uploadImage(
@@ -278,156 +306,159 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
             'main'
         );
     }
-
-    if (galleryFiles && galleryFiles.length > 0) {
+    if (galleryFiles?.length) {
         galleryUrls = await uploadProductGalleryImages(galleryFiles, productId);
     }
 
     await db.query(
-        `UPDATE product_products SET
-            main_image_url = $1,
-            image_urls = $2,
-            updated_at = CURRENT_TIMESTAMP
+        `UPDATE product_products
+         SET main_image_url = $1, image_urls = $2, updated_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
         [mainImageUrl, JSON.stringify(galleryUrls), productId]
     );
 
-    if (stockQuantity !== undefined) {
-        const quantity = parseInt(stockQuantity, 10);
-        if (isNaN(quantity) || quantity < 0) {
-            throw new Error('Invalid stockQuantity');
-        }
-        await db.query(
-            'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-            [quantity, productId, 1]
-        );
+    // ── Дефолтный вариант "Стандарт" ────────────────────────────
+    const { rows: variantRows } = await db.query(
+        `INSERT INTO product_variants
+            (product_id, name, options, is_active, is_available, sort_order)
+         VALUES ($1, 'Стандарт', '{}', TRUE, TRUE, 0)
+         RETURNING id`,
+        [productId]
+    );
+    const defaultVariantId = variantRows[0].id;
+
+    await upsertVariantInventory(defaultVariantId, productId, stockQuantityRu, 1);
+    if (stockQuantityKg > 0) {
+        await upsertVariantInventory(defaultVariantId, productId, stockQuantityKg, 4);
     }
 
     return getProductByIdentifier(productId, true);
 };
 
+// ─────────────────────────────────────────────────────────────────
 // Обновить продукт
+// ─────────────────────────────────────────────────────────────────
 const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
     const currentProduct = await getProductByIdentifier(id, true);
     if (!currentProduct) throw new Error('Продукт не найден');
 
+    // Обновляем инвентарь через первый активный вариант (Россия)
     if (data.stockQuantity !== undefined) {
         const quantity = parseInt(data.stockQuantity, 10);
-        if (isNaN(quantity) || quantity < 0) {
-            throw new Error('Invalid stockQuantity');
-        }
-        const { rows: inventoryCheck } = await db.query(
-            'SELECT * FROM product_inventory WHERE product_id = $1 AND location_id = $2',
-            [id, 1]
-        );
-        if (inventoryCheck.length > 0) {
-            await db.query(
-                'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-                [quantity, id, 1]
+        if (!isNaN(quantity) && quantity >= 0) {
+            const { rows: variantRows } = await db.query(
+                `SELECT id FROM product_variants
+                 WHERE product_id = $1 AND is_active = TRUE
+                 ORDER BY sort_order ASC, id ASC LIMIT 1`,
+                [id]
             );
-        } else {
-            await db.query(
-                'INSERT INTO product_inventory (product_id, location_id, quantity, min_stock_level) VALUES ($1, $2, $3, $4)',
-                [id, 1, quantity, 0]
-            );
+            if (variantRows.length > 0) {
+                await upsertVariantInventory(variantRows[0].id, id, quantity, 1);
+            }
         }
         delete data.stockQuantity;
     }
 
+    data.retail_price_kg   = nullifyZero(data.retail_price_kg);
+    data.discount_price_kg = nullifyZero(data.discount_price_kg);
+    data.discount_price    = nullifyZero(data.discount_price);
+
+    // Сливаем attributes (не заменяем полностью)
     if (data.attributes) {
-        const { rows: currentRows } = await db.query(
-            'SELECT attributes FROM product_products WHERE id = $1',
-            [id]
+        const { rows: cur } = await db.query(
+            'SELECT attributes FROM product_products WHERE id = $1', [id]
         );
-        if (currentRows.length === 0) {
-            throw new Error('Product not found');
-        }
-        let currentAttrs = currentRows[0].attributes || {};
-        const updatedAttrs = { ...currentAttrs, ...data.attributes };
-        data.attributes = JSON.stringify(updatedAttrs);
+        data.attributes = JSON.stringify({
+            ...(cur[0]?.attributes || {}),
+            ...data.attributes,
+        });
     }
 
-    let mainImageUrl = data.main_image_url || currentProduct.main_image_url;
-    let galleryUrls = data.image_urls || currentProduct.image_urls;
-
+    // ── Замена главного изображения ─────────────────────────────
+    // Алгоритм: удалить старое из S3 → загрузить новое → записать URL в БД
     if (newMainImageFile) {
-        if (currentProduct.main_image_url && !currentProduct.main_image_url.startsWith('/uploads/products/')) {
-            await deleteImageByUrl(currentProduct.main_image_url);
+        if (currentProduct.image) {
+            await deleteImageByUrl(currentProduct.image).catch(() => {});
         }
-        mainImageUrl = await uploadImage(
+        data.main_image_url = await uploadImage(
             newMainImageFile.buffer,
             newMainImageFile.originalname,
             'products',
             id,
             'main'
         );
-        data.main_image_url = mainImageUrl;
     }
 
-    if (newGalleryFiles && newGalleryFiles.length > 0) {
-        await deleteProductGallery(id);
-        galleryUrls = await uploadProductGalleryImages(newGalleryFiles, id);
-        data.image_urls = JSON.stringify(galleryUrls);
+    // ── Замена галереи ───────────────────────────────────────────
+    // Алгоритм: удалить все старые из S3 → загрузить новые → записать URLs в БД
+    if (newGalleryFiles?.length) {
+        const existingGallery = Array.isArray(currentProduct.images) ? currentProduct.images : [];
+        if (existingGallery.length > 0) {
+            await deleteProductGallery(id, existingGallery).catch(() => {});
+        }
+        data.image_urls = JSON.stringify(
+            await uploadProductGalleryImages(newGalleryFiles, id)
+        );
     }
 
-    if (data.discount_price === 0) {
-        data.discount_price = null;
-    }
     if (data.image_urls && typeof data.image_urls === 'object') {
         data.image_urls = JSON.stringify(data.image_urls);
     }
 
-    const fields = Object.keys(data)
-        .map((key, idx) => `${key} = $${idx + 2}`)
-        .join(', ');
-
-    const values = Object.values(data);
-
-    if (fields) {
+    if (Object.keys(data).length > 0) {
+        const fields = Object.keys(data).map((key, i) => `${key} = $${i + 2}`).join(', ');
         await db.query(
             `UPDATE product_products SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-            [id, ...values]
+            [id, ...Object.values(data)]
         );
     }
 
     return getProductByIdentifier(id, true);
 };
 
-// Удалить продукт
+// ─────────────────────────────────────────────────────────────────
+// Удалить продукт + очистить S3
+// ─────────────────────────────────────────────────────────────────
 const deleteProduct = async (id) => {
-    const product = await getProductByIdentifier(id);
+    const product = await getProductByIdentifier(id, true);
     if (product) {
-        if (product.main_image_url && !product.main_image_url.startsWith('/uploads/products/')) {
-            await deleteEntityImages('products', id);
+        if (product.image) await deleteEntityImages('products', id).catch(() => {});
+
+        const existingGallery = Array.isArray(product.images) ? product.images : [];
+        if (existingGallery.length > 0) {
+            await deleteProductGallery(id, existingGallery).catch(() => {});
         }
-        if (product.image_urls && product.image_urls.length > 0) {
-            await deleteProductGallery(id);
+
+        const { rows: variants } = await db.query(
+            'SELECT id, main_image_url, image_urls FROM product_variants WHERE product_id = $1',
+            [id]
+        );
+        for (const v of variants) {
+            if (v.main_image_url) await deleteImageByUrl(v.main_image_url).catch(() => {});
+            const vg = Array.isArray(v.image_urls) ? v.image_urls : [];
+            if (vg.length > 0) await deleteVariantGallery(v.id, vg).catch(() => {});
         }
     }
-    await db.query('DELETE FROM product_inventory WHERE product_id = $1', [id]);
+
+    // FK каскад удалит: variants, inventory, reviews, cart, wishlist
     await db.query('DELETE FROM product_products WHERE id = $1', [id]);
 };
 
-// Поиск продуктов (улучшенная версия)
-const searchProducts = async (query, page = 1, limit = 20) => {
-    if (!query || !query.trim()) {
-        return { products: [], total: 0, page: 1, pages: 0, limit, hasMore: false };
-    }
-    return getAllProducts({
-        search: query.trim(),
-        page,
-        limit,
-        sort: 'relevance'
-    });
+const searchProducts = async (query, page = 1, limit = 20, region = 'ru') => {
+    if (!query?.trim()) return { products: [], total: 0, page: 1, pages: 0, limit, hasMore: false };
+    return getAllProducts({ search: query.trim(), page, limit, sort: 'relevance', region });
 };
 
-// Получить продукты по бренду
-const getProductsByBrand = async (brandId) => {
+const getProductsByBrand = async (brandId, region = 'ru') => {
+    const viewName = resolveView(false, region);
     const { rows } = await db.query(
-        'SELECT * FROM product_view WHERE brand_id = $1',
+        `SELECT id, name, slug, price, "discountPrice", image, "isNew", "isFeatured",
+                "isBestseller", brand, brand_id, brand_slug, category_name,
+                rating, "reviewCount", sku, "variantCount", "inStock", "stockQuantity"
+         FROM ${viewName} WHERE brand_id = $1`,
         [brandId]
     );
-    return rows;
+    return rows.map(normalizeProduct);
 };
 
 module.exports = {
@@ -438,4 +469,5 @@ module.exports = {
     deleteProduct,
     searchProducts,
     getProductsByBrand,
+    upsertVariantInventory,
 };
