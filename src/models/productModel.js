@@ -222,7 +222,7 @@ const getAllProducts = async ({
         created_at, updated_at,
         sku, product_type, target_audience, skin_type,
         "variantCount"
-        ${isAdmin ? `, "purchasePrice", "priceKg", "discountPriceKg",
+        ${isAdmin ? `, "purchasePrice", "purchasePriceKg", "priceKg", "discountPriceKg",
             supplier_id, weight_grams, length_cm, width_cm, height_cm,
             meta_title, meta_description,
             "inStockRu", "inStockKg", "inStockTotal",
@@ -278,8 +278,13 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
 
     const stockQuantityRu = parseInt(data.stockQuantity   ?? 0, 10);
     const stockQuantityKg = parseInt(data.stockQuantityKg ?? 0, 10);
+
+    const variantOptions = data.variantOptions || {};
+
     delete data.stockQuantity;
     delete data.stockQuantityKg;
+    delete data.variantOptions; 
+
 
     const fields       = Object.keys(data).join(', ');
     const values       = Object.values(data);
@@ -317,13 +322,13 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
         [mainImageUrl, JSON.stringify(galleryUrls), productId]
     );
 
-    // ── Дефолтный вариант "Стандарт" ────────────────────────────
+    // создание варианта 
     const { rows: variantRows } = await db.query(
         `INSERT INTO product_variants
             (product_id, name, options, is_active, is_available, sort_order)
-         VALUES ($1, 'Стандарт', '{}', TRUE, TRUE, 0)
+         VALUES ($1, $2, $3, TRUE, TRUE, 0)
          RETURNING id`,
-        [productId]
+        [productId, variantName, JSON.stringify(variantOptions)]
     );
     const defaultVariantId = variantRows[0].id;
 
@@ -342,7 +347,7 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
     const currentProduct = await getProductByIdentifier(id, true);
     if (!currentProduct) throw new Error('Продукт не найден');
 
-    // Обновляем инвентарь через первый активный вариант (Россия)
+    // ── Обновляем инвентарь первого активного варианта (Россия) ──
     if (data.stockQuantity !== undefined) {
         const quantity = parseInt(data.stockQuantity, 10);
         if (!isNaN(quantity) && quantity >= 0) {
@@ -358,7 +363,53 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
         }
         delete data.stockQuantity;
     }
+    // ── Обновляем инвентарь первого активного варианта (Кыргызстан) ──
+    if (data.stockQuantityKg !== undefined) {
+        const quantityKg = parseInt(data.stockQuantityKg, 10);
+        if (!isNaN(quantityKg) && quantityKg >= 0) {
+            const { rows: variantRows } = await db.query(
+                `SELECT id FROM product_variants
+                WHERE product_id = $1 AND is_active = TRUE
+                ORDER BY sort_order ASC, id ASC LIMIT 1`,
+                [id]
+            );
+            if (variantRows.length > 0) {
+                await upsertVariantInventory(variantRows[0].id, id, quantityKg, 4);
+            }
+        }
+        delete data.stockQuantityKg;
+    }
 
+    // ── Обновляем вариант если передан variantOptions 
+    if (data.variantOptions !== undefined) {
+        const { rows: allVariants } = await db.query(
+            `SELECT id FROM product_variants
+             WHERE product_id = $1 AND is_active = TRUE`,
+            [id]
+        );
+
+        if (allVariants.length === 1) {
+            const variantId  = allVariants[0].id;
+            const newOptions = data.variantOptions;
+
+            // Название из ВСЕХ значений через " / "
+            // {"Объём":"50 мл"}                 → "50 мл"
+            // {"Объём":"50 мл","Цвет":"Синий"}  → "50 мл / Синий"
+            const newName = Object.values(newOptions).join(' / ');
+
+            await db.query(
+                `UPDATE product_variants
+                 SET name = $1, options = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3`,
+                [newName, JSON.stringify(newOptions), variantId]
+            );
+        }
+
+        // Удаляем — этого поля нет в таблице product_products
+        delete data.variantOptions;
+    }
+
+    data.purchase_price_kg  = nullifyZero(data.purchase_price_kg);
     data.retail_price_kg   = nullifyZero(data.retail_price_kg);
     data.discount_price_kg = nullifyZero(data.discount_price_kg);
     data.discount_price    = nullifyZero(data.discount_price);

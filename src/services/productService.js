@@ -3,6 +3,7 @@ const Joi = require('joi');
 const productModel = require('../models/productModel');
 const AppError = require('../utils/errorUtils');
 const { validateImageFile } = require('../utils/imageUtils');
+const db = require('../config/db');
 
 // ─────────────────────────────────────────────────────────────────
 // Схема валидации для создания продукта
@@ -13,6 +14,7 @@ const productSchema = Joi.object({
     purchase_price:    Joi.number().positive().required(),
     retail_price:      Joi.number().positive().required(),
     discount_price:    Joi.number().min(0).allow(null).optional(),
+    purchase_price_kg: Joi.number().positive().allow(null).optional(),
     retail_price_kg:   Joi.number().positive().allow(null).optional(),
     discount_price_kg: Joi.number().min(0).allow(null).optional(),
     brand_id:          Joi.number().integer().required(),
@@ -30,13 +32,14 @@ const productSchema = Joi.object({
     is_active:         Joi.boolean().default(true),
     is_featured:       Joi.boolean().default(false),
     is_new:            Joi.boolean().default(true),
-    is_bestseller:     Joi.boolean().default(false),
+    is_bestseller:     Joi.boolean().default(false),      
+    variantOptions: Joi.object().min(1).required().messages({
+        'object.min':   'variantOptions должен содержать хотя бы одну характеристику. Пример: Объём - 40 гр.',
+        'any.required': 'variantOptions обязателен. Пример: Объём - 40 гр.',
+    }),
     attributes:        Joi.object().keys({
         ingredients: Joi.string().allow('').optional(),
         usage:       Joi.string().allow('').optional(),
-        variants:    Joi.array().items(
-            Joi.object({ name: Joi.string().allow(''), value: Joi.string().allow('') })
-        ).optional(),
     }).default({}),
     meta_title:        Joi.string().allow('').optional(),
     meta_description:  Joi.string().allow('').optional(),
@@ -53,6 +56,7 @@ const updateSchema = Joi.object({
     purchase_price:    Joi.number().positive().optional(),
     retail_price:      Joi.number().positive().optional(),
     discount_price:    Joi.number().min(0).allow(null).optional(),
+    purchase_price_kg: Joi.number().positive().allow(null).optional(),
     retail_price_kg:   Joi.number().positive().allow(null).optional(),
     discount_price_kg: Joi.number().min(0).allow(null).optional(),
     brand_id:          Joi.number().integer().optional(),
@@ -71,19 +75,20 @@ const updateSchema = Joi.object({
     is_featured:       Joi.boolean().optional(),
     is_new:            Joi.boolean().optional(),
     is_bestseller:     Joi.boolean().optional(),
+    variantOptions: Joi.object().min(1).optional().messages({
+        'object.min': 'variantOptions должен содержать хотя бы одну характеристику. Пример: Объём - 40 гр.',
+    }),
     attributes:        Joi.alternatives().try(
         Joi.object().keys({
             ingredients: Joi.string().allow('').optional(),
             usage:       Joi.string().allow('').optional(),
-            variants:    Joi.array().items(
-                Joi.object({ name: Joi.string().allow(''), value: Joi.string().allow('') })
-            ).optional(),
         }),
         Joi.string().allow('')
     ).optional(),
     meta_title:        Joi.string().allow('').optional(),
     meta_description:  Joi.string().allow('').optional(),
     stockQuantity:     Joi.number().integer().min(0).optional(),
+    stockQuantityKg: Joi.number().integer().min(0).optional(),
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -136,6 +141,8 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
         retail_price:      data.retail_price      ? Number(data.retail_price)      : undefined,
         discount_price:    data.discount_price !== undefined && data.discount_price !== ''
             ? Number(data.discount_price) : null,
+        purchase_price_kg: data.purchase_price_kg !== undefined && data.purchase_price_kg !== ''
+            ? Number(data.purchase_price_kg) : null,
         retail_price_kg:   data.retail_price_kg !== undefined && data.retail_price_kg !== ''
             ? Number(data.retail_price_kg) : null,
         discount_price_kg: data.discount_price_kg !== undefined && data.discount_price_kg !== ''
@@ -153,6 +160,14 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
         is_featured:       data.is_featured  === 'true' || data.is_featured  === true,
         is_new:            data.is_new       === 'true' || data.is_new       === true,
         is_bestseller:     data.is_bestseller === 'true' || data.is_bestseller === true,
+        variantOptions: (() => {
+            if (!data.variantOptions) return undefined;
+            if (typeof data.variantOptions === 'string') {
+                try { return JSON.parse(data.variantOptions); }
+                catch { throw new AppError('Неверный формат variantOptions. Пример: {"Объём":"40 гр."}', 400); }
+            }
+            return data.variantOptions;
+        })(),
     };
 
     if (parsed.attributes && typeof parsed.attributes === 'string') {
@@ -177,10 +192,15 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
 
     if (data.purchase_price    !== undefined) parsed.purchase_price    = Number(data.purchase_price);
     if (data.retail_price      !== undefined) parsed.retail_price      = Number(data.retail_price);
-    if (data.discount_price    !== undefined && data.discount_price !== '')
+
+    if (data.discount_price !== undefined && data.discount_price !== '')
         parsed.discount_price = Number(data.discount_price);
     else if (data.discount_price === '' || data.discount_price === '0')
         parsed.discount_price = null;
+
+    if (data.purchase_price_kg !== undefined) parsed.purchase_price_kg =
+        data.purchase_price_kg !== '' && data.purchase_price_kg !== '0'
+            ? Number(data.purchase_price_kg) : null;
 
     if (data.retail_price_kg !== undefined && data.retail_price_kg !== '')
         parsed.retail_price_kg = Number(data.retail_price_kg);
@@ -200,10 +220,34 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
     if (data.width_cm     !== undefined) parsed.width_cm     = data.width_cm     ? Number(data.width_cm)     : null;
     if (data.height_cm    !== undefined) parsed.height_cm    = data.height_cm    ? Number(data.height_cm)    : null;
     if (data.stockQuantity !== undefined) parsed.stockQuantity = Number(data.stockQuantity);
+    if (data.stockQuantityKg !== undefined) parsed.stockQuantityKg = Number(data.stockQuantityKg); 
     if (data.is_active    !== undefined) parsed.is_active    = data.is_active    === 'true' || data.is_active    === true;
     if (data.is_featured  !== undefined) parsed.is_featured  = data.is_featured  === 'true' || data.is_featured  === true;
     if (data.is_new       !== undefined) parsed.is_new       = data.is_new       === 'true' || data.is_new       === true;
     if (data.is_bestseller !== undefined) parsed.is_bestseller = data.is_bestseller === 'true' || data.is_bestseller === true;
+
+    // Парсим variantOptions из JSON строки
+    if (data.variantOptions !== undefined) {
+        if (typeof data.variantOptions === 'string') {
+            try { parsed.variantOptions = JSON.parse(data.variantOptions); }
+            catch { throw new AppError('Неверный формат variantOptions. Пример: {"Объём":"50 мл"}', 400); }
+        }
+
+        // Проверяем количество вариантов — если больше одного, запрещаем
+        const { rows: variantCount } = await db.query(
+            `SELECT COUNT(*)::integer AS cnt
+             FROM product_variants
+             WHERE product_id = $1 AND is_active = TRUE`,
+            [id]
+        );
+        if (variantCount[0].cnt > 1) {
+            throw new AppError(
+                `Нельзя изменить variantOptions через товар — у товара ${variantCount[0].cnt} варианта. ` +
+                `Используйте PUT /api/products/${id}/variants/:variantId`,
+                400
+            );
+        }
+    }
 
     if (parsed.attributes && typeof parsed.attributes === 'string') {
         try { parsed.attributes = JSON.parse(parsed.attributes); }
