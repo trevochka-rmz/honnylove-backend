@@ -11,6 +11,8 @@ const productSchema = Joi.object({
   purchase_price: Joi.number().positive().required(),
   retail_price: Joi.number().positive().required(),
   discount_price: Joi.number().min(0).allow(null).optional(),
+  retail_price_kg: Joi.number().positive().allow(null).optional(),
+  discount_price_kg: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().required(),
   category_id: Joi.number().integer().required(),
   supplier_id: Joi.number().integer().allow(null).optional(),
@@ -27,24 +29,18 @@ const productSchema = Joi.object({
   is_featured: Joi.boolean().default(false),
   is_new: Joi.boolean().default(true),
   is_bestseller: Joi.boolean().default(false),
-  attributes: Joi.object()
-    .keys({
+  attributes: Joi.object().keys({
       ingredients: Joi.string().allow('').optional(),
       usage: Joi.string().allow('').optional(),
-      variants: Joi.array()
-        .items(
-          Joi.object({
-            name: Joi.string().allow(''),
-            value: Joi.string().allow(''),
-          })
-        )
-        .optional(),
-    })
-    .default({}),
+      variants: Joi.array().items(
+          Joi.object({ name: Joi.string().allow(''), value: Joi.string().allow('') })
+      ).optional(),
+  }).default({}),
   meta_title: Joi.string().allow('').optional(),
   meta_description: Joi.string().allow('').optional(),
   stockQuantity: Joi.number().integer().min(0).optional(),
 });
+
 
 // Схема валидации для обновления продукта
 const updateSchema = Joi.object({
@@ -53,6 +49,8 @@ const updateSchema = Joi.object({
   purchase_price: Joi.number().positive().optional(),
   retail_price: Joi.number().positive().optional(),
   discount_price: Joi.number().min(0).allow(null).optional(),
+  retail_price_kg: Joi.number().positive().allow(null).optional(),
+  discount_price_kg: Joi.number().min(0).allow(null).optional(),
   brand_id: Joi.number().integer().optional(),
   category_id: Joi.number().integer().optional(),
   supplier_id: Joi.number().integer().allow(null).optional(),
@@ -70,26 +68,20 @@ const updateSchema = Joi.object({
   is_new: Joi.boolean().optional(),
   is_bestseller: Joi.boolean().optional(),
   attributes: Joi.alternatives().try(
-    Joi.object()
-      .keys({
-        ingredients: Joi.string().allow('').optional(),
-        usage: Joi.string().allow('').optional(),
-        variants: Joi.array()
-          .items(
-            Joi.object({
-              name: Joi.string().allow(''),
-              value: Joi.string().allow(''),
-            })
-          )
-          .optional(),
-      })
-      .optional(),
-    Joi.string().allow('') 
+      Joi.object().keys({
+          ingredients: Joi.string().allow('').optional(),
+          usage: Joi.string().allow('').optional(),
+          variants: Joi.array().items(
+              Joi.object({ name: Joi.string().allow(''), value: Joi.string().allow('') })
+          ).optional(),
+      }).optional(),
+      Joi.string().allow('')
   ).optional(),
   meta_title: Joi.string().allow('').optional(),
   meta_description: Joi.string().allow('').optional(),
   stockQuantity: Joi.number().integer().min(0).optional(),
 });
+
 
 // Схема валидации для запроса списка продуктов
 const querySchema = Joi.object({
@@ -134,33 +126,32 @@ const getProductByIdentifier = async (identifier, isAdmin = false) => {
 // Создать новый продукт с валидацией
 const createProduct = async (data, mainImageFile, galleryFiles) => {
   const parsed = {
-    ...data,
-    purchase_price: data.purchase_price ? Number(data.purchase_price) : undefined,
-    retail_price: data.retail_price ? Number(data.retail_price) : undefined,
-    discount_price: data.discount_price !== undefined && data.discount_price !== ''
-      ? Number(data.discount_price)
-      : null,
-    brand_id: data.brand_id ? Number(data.brand_id) : undefined,
-    category_id: data.category_id ? Number(data.category_id) : undefined,
-    supplier_id: data.supplier_id ? Number(data.supplier_id) : null,
-    weight_grams: data.weight_grams ? Number(data.weight_grams) : undefined,
-    length_cm: data.length_cm ? Number(data.length_cm) : undefined,
-    width_cm: data.width_cm ? Number(data.width_cm) : undefined,
-    height_cm: data.height_cm ? Number(data.height_cm) : undefined,
-    stockQuantity: data.stockQuantity ? Number(data.stockQuantity) : undefined,
-    is_active: data.is_active === 'true' || data.is_active === true,
-    is_featured: data.is_featured === 'true' || data.is_featured === true,
-    is_new: data.is_new === 'true' || data.is_new === true,
-    is_bestseller: data.is_bestseller === 'true' || data.is_bestseller === true,
+      ...data,
+      purchase_price: data.purchase_price ? Number(data.purchase_price) : undefined,
+      retail_price: data.retail_price ? Number(data.retail_price) : undefined,
+      discount_price: (data.discount_price !== undefined && data.discount_price !== '')
+          ? Number(data.discount_price) : null,
+      retail_price_kg: (data.retail_price_kg !== undefined && data.retail_price_kg !== '')
+          ? Number(data.retail_price_kg) : null,
+      discount_price_kg: (data.discount_price_kg !== undefined && data.discount_price_kg !== '')
+          ? Number(data.discount_price_kg) : null,
+      brand_id: data.brand_id ? Number(data.brand_id) : undefined,
+      category_id: data.category_id ? Number(data.category_id) : undefined,
+      supplier_id: data.supplier_id ? Number(data.supplier_id) : null,
+      weight_grams: data.weight_grams ? Number(data.weight_grams) : undefined,
+      length_cm: data.length_cm ? Number(data.length_cm) : undefined,
+      width_cm: data.width_cm ? Number(data.width_cm) : undefined,
+      height_cm: data.height_cm ? Number(data.height_cm) : undefined,
+      stockQuantity: data.stockQuantity ? Number(data.stockQuantity) : undefined,
+      is_active: data.is_active === 'true' || data.is_active === true,
+      is_featured: data.is_featured === 'true' || data.is_featured === true,
+      is_new: data.is_new === 'true' || data.is_new === true,
+      is_bestseller: data.is_bestseller === 'true' || data.is_bestseller === true,
   };
 
-  // Парсим attributes ДО валидации — Joi ожидает объект, а не строку
   if (parsed.attributes && typeof parsed.attributes === 'string') {
-    try {
-      parsed.attributes = JSON.parse(parsed.attributes);
-    } catch {
-      parsed.attributes = {};
-    }
+      try { parsed.attributes = JSON.parse(parsed.attributes); }
+      catch { parsed.attributes = {}; }
   }
 
   const { error } = productSchema.validate(parsed);
@@ -168,7 +159,7 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
 
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
-    galleryFiles.forEach(file => validateImageFile(file));
+      galleryFiles.forEach(file => validateImageFile(file));
   }
 
   return productModel.createProduct(parsed, mainImageFile, galleryFiles);
@@ -182,9 +173,19 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
   if (data.purchase_price !== undefined) parsed.purchase_price = Number(data.purchase_price);
   if (data.retail_price !== undefined) parsed.retail_price = Number(data.retail_price);
   if (data.discount_price !== undefined && data.discount_price !== '') {
-    parsed.discount_price = Number(data.discount_price);
+      parsed.discount_price = Number(data.discount_price);
   } else if (data.discount_price === '' || data.discount_price === '0') {
-    parsed.discount_price = null;
+      parsed.discount_price = null;
+  }
+  if (data.retail_price_kg !== undefined && data.retail_price_kg !== '') {
+      parsed.retail_price_kg = Number(data.retail_price_kg);
+  } else if (data.retail_price_kg === '' || data.retail_price_kg === '0') {
+      parsed.retail_price_kg = null;
+  }
+  if (data.discount_price_kg !== undefined && data.discount_price_kg !== '') {
+      parsed.discount_price_kg = Number(data.discount_price_kg);
+  } else if (data.discount_price_kg === '' || data.discount_price_kg === '0') {
+      parsed.discount_price_kg = null;
   }
   if (data.brand_id !== undefined) parsed.brand_id = Number(data.brand_id);
   if (data.category_id !== undefined) parsed.category_id = Number(data.category_id);
@@ -199,13 +200,9 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
   if (data.is_new !== undefined) parsed.is_new = data.is_new === 'true' || data.is_new === true;
   if (data.is_bestseller !== undefined) parsed.is_bestseller = data.is_bestseller === 'true' || data.is_bestseller === true;
 
-  // Парсим attributes ДО валидации
   if (parsed.attributes && typeof parsed.attributes === 'string') {
-    try {
-      parsed.attributes = JSON.parse(parsed.attributes);
-    } catch {
-      parsed.attributes = {};
-    }
+      try { parsed.attributes = JSON.parse(parsed.attributes); }
+      catch { parsed.attributes = {}; }
   }
 
   const { error } = updateSchema.validate(parsed, { allowUnknown: true });
@@ -213,7 +210,7 @@ const updateProduct = async (id, data, mainImageFile, galleryFiles) => {
 
   validateImageFile(mainImageFile);
   if (galleryFiles && galleryFiles.length > 0) {
-    galleryFiles.forEach(file => validateImageFile(file));
+      galleryFiles.forEach(file => validateImageFile(file));
   }
 
   const product = await getProductByIdentifier(id);

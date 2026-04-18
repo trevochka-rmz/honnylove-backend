@@ -247,6 +247,12 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
     if (data.discount_price === 0 || data.discount_price === '0' || data.discount_price === '') {
         data.discount_price = null;
     }
+    if (data.retail_price_kg === 0 || data.retail_price_kg === '0' || data.retail_price_kg === '') {
+        data.retail_price_kg = null;
+    }
+    if (data.discount_price_kg === 0 || data.discount_price_kg === '0' || data.discount_price_kg === '') {
+        data.discount_price_kg = null;
+    }
 
     const stockQuantity = data.stockQuantity;
     delete data.stockQuantity;
@@ -259,7 +265,6 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
         `INSERT INTO product_products (${fields}) VALUES (${placeholders}) RETURNING *`,
         values
     );
-
     const created = rows[0];
     const productId = created.id;
 
@@ -278,30 +283,26 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
             'main'
         );
     }
-
     if (galleryFiles && galleryFiles.length > 0) {
         galleryUrls = await uploadProductGalleryImages(galleryFiles, productId);
     }
 
     await db.query(
-        `UPDATE product_products SET
-            main_image_url = $1,
-            image_urls = $2,
-            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
+        `UPDATE product_products SET main_image_url = $1, image_urls = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [mainImageUrl, JSON.stringify(galleryUrls), productId]
     );
 
-    if (stockQuantity !== undefined) {
-        const quantity = parseInt(stockQuantity, 10);
-        if (isNaN(quantity) || quantity < 0) {
-            throw new Error('Invalid stockQuantity');
-        }
-        await db.query(
-            'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
-            [quantity, productId, 1]
-        );
-    }
+    const quantity = stockQuantity ? parseInt(stockQuantity, 10) : 1;
+
+    await db.query(
+        'UPDATE product_inventory SET quantity = $1, last_updated = CURRENT_TIMESTAMP WHERE product_id = $2 AND location_id = $3',
+        [quantity, productId, 1]
+    );
+
+    await db.query(
+        `UPDATE product_variants SET stock_quantity = $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2`,
+        [quantity, productId]
+    );
 
     return getProductByIdentifier(productId, true);
 };
@@ -313,9 +314,8 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
 
     if (data.stockQuantity !== undefined) {
         const quantity = parseInt(data.stockQuantity, 10);
-        if (isNaN(quantity) || quantity < 0) {
-            throw new Error('Invalid stockQuantity');
-        }
+        if (isNaN(quantity) || quantity < 0) throw new Error('Invalid stockQuantity');
+
         const { rows: inventoryCheck } = await db.query(
             'SELECT * FROM product_inventory WHERE product_id = $1 AND location_id = $2',
             [id, 1]
@@ -331,30 +331,40 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
                 [id, 1, quantity, 0]
             );
         }
+
+        const { rows: variantRows } = await db.query(
+            'SELECT id FROM product_variants WHERE product_id = $1 ORDER BY sort_order ASC, id ASC LIMIT 1',
+            [id]
+        );
+        if (variantRows.length > 0) {
+            await db.query(
+                'UPDATE product_variants SET stock_quantity = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                [quantity, variantRows[0].id]
+            );
+        }
+
         delete data.stockQuantity;
     }
+
+    if (data.retail_price_kg === '' || data.retail_price_kg === '0') data.retail_price_kg = null;
+    if (data.discount_price_kg === '' || data.discount_price_kg === '0') data.discount_price_kg = null;
 
     if (data.attributes) {
         const { rows: currentRows } = await db.query(
             'SELECT attributes FROM product_products WHERE id = $1',
             [id]
         );
-        if (currentRows.length === 0) {
-            throw new Error('Product not found');
-        }
-        let currentAttrs = currentRows[0].attributes || {};
+        if (currentRows.length === 0) throw new Error('Product not found');
+        const currentAttrs = currentRows[0].attributes || {};
         const updatedAttrs = { ...currentAttrs, ...data.attributes };
         data.attributes = JSON.stringify(updatedAttrs);
     }
 
-    let mainImageUrl = data.main_image_url || currentProduct.main_image_url;
-    let galleryUrls = data.image_urls || currentProduct.image_urls;
-
     if (newMainImageFile) {
-        if (currentProduct.main_image_url && !currentProduct.main_image_url.startsWith('/uploads/products/')) {
-            await deleteImageByUrl(currentProduct.main_image_url);
+        if (currentProduct.image && !currentProduct.image.startsWith('/uploads/products/')) {
+            await deleteImageByUrl(currentProduct.image);
         }
-        mainImageUrl = await uploadImage(
+        const mainImageUrl = await uploadImage(
             newMainImageFile.buffer,
             newMainImageFile.originalname,
             'products',
@@ -366,21 +376,16 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
 
     if (newGalleryFiles && newGalleryFiles.length > 0) {
         await deleteProductGallery(id);
-        galleryUrls = await uploadProductGalleryImages(newGalleryFiles, id);
+        const galleryUrls = await uploadProductGalleryImages(newGalleryFiles, id);
         data.image_urls = JSON.stringify(galleryUrls);
     }
 
-    if (data.discount_price === 0) {
-        data.discount_price = null;
-    }
+    if (data.discount_price === 0) data.discount_price = null;
     if (data.image_urls && typeof data.image_urls === 'object') {
         data.image_urls = JSON.stringify(data.image_urls);
     }
 
-    const fields = Object.keys(data)
-        .map((key, idx) => `${key} = $${idx + 2}`)
-        .join(', ');
-
+    const fields = Object.keys(data).map((key, idx) => `${key} = $${idx + 2}`).join(', ');
     const values = Object.values(data);
 
     if (fields) {
@@ -395,13 +400,27 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
 
 // Удалить продукт
 const deleteProduct = async (id) => {
-    const product = await getProductByIdentifier(id);
+    const product = await getProductByIdentifier(id, true);
     if (product) {
-        if (product.main_image_url && !product.main_image_url.startsWith('/uploads/products/')) {
+        if (product.image && !product.image.startsWith('/uploads/products/')) {
             await deleteEntityImages('products', id);
         }
-        if (product.image_urls && product.image_urls.length > 0) {
+        if (product.images && product.images.length > 0) {
             await deleteProductGallery(id);
+        }
+        const { rows: variants } = await db.query(
+            'SELECT id, main_image_url, image_urls FROM product_variants WHERE product_id = $1',
+            [id]
+        );
+        for (const variant of variants) {
+            if (variant.main_image_url) {
+                await deleteImageByUrl(variant.main_image_url).catch(() => {});
+            }
+            if (variant.image_urls && variant.image_urls.length > 0) {
+                for (const url of variant.image_urls) {
+                    await deleteImageByUrl(url).catch(() => {});
+                }
+            }
         }
     }
     await db.query('DELETE FROM product_inventory WHERE product_id = $1', [id]);
