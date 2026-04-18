@@ -29,10 +29,7 @@ const productSchema = Joi.object({
     length_cm:         Joi.number().integer().allow(null).optional(),
     width_cm:          Joi.number().integer().allow(null).optional(),
     height_cm:         Joi.number().integer().allow(null).optional(),
-    is_active:         Joi.boolean().default(true),
-    is_featured:       Joi.boolean().default(false),
-    is_new:            Joi.boolean().default(true),
-    is_bestseller:     Joi.boolean().default(false),      
+    is_active:         Joi.boolean().default(true), 
     variantOptions: Joi.object().min(1).required().messages({
         'object.min':   'variantOptions должен содержать хотя бы одну характеристику. Пример: Объём - 40 гр.',
         'any.required': 'variantOptions обязателен. Пример: Объём - 40 гр.',
@@ -72,9 +69,6 @@ const updateSchema = Joi.object({
     width_cm:          Joi.number().integer().allow(null).optional(),
     height_cm:         Joi.number().integer().allow(null).optional(),
     is_active:         Joi.boolean().optional(),
-    is_featured:       Joi.boolean().optional(),
-    is_new:            Joi.boolean().optional(),
-    is_bestseller:     Joi.boolean().optional(),
     variantOptions: Joi.object().min(1).optional().messages({
         'object.min': 'variantOptions должен содержать хотя бы одну характеристику. Пример: Объём - 40 гр.',
     }),

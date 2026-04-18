@@ -35,7 +35,6 @@ const getCartItemsWithDetails = async (client, userId) => {
                 ELSE pp.retail_price
             END                         AS final_price,
 
-            -- Сумма строки
             CASE
                 WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
                     THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
@@ -44,9 +43,6 @@ const getCartItemsWithDetails = async (client, userId) => {
                 ELSE pp.retail_price
             END * ci.quantity           AS line_total,
 
-            -- Остаток:
-            -- Если есть variant_id → берём по варианту, location_id = 1 (Россия)
-            -- Если нет → по продукту без варианта (legacy)
             COALESCE(
                 (SELECT SUM(pi.quantity)
                  FROM product_inventory pi
@@ -66,7 +62,6 @@ const getCartItemsWithDetails = async (client, userId) => {
                 0
             )                           AS available_stock,
 
-            -- Снимок варианта для записи в заказ
             CASE
                 WHEN ci.variant_id IS NOT NULL
                     THEN jsonb_build_object(
@@ -226,6 +221,12 @@ const createOrder = async (client, orderData) => {
 
 // ─────────────────────────────────────────────────────────────────
 // Добавить позицию в заказ
+//
+// ВАЖНО по структуре order_items:
+//   price         — базовая цена товара (retail_price или price_override_rf)
+//   discount_price — финальная цена если есть скидка (discount_override_rf)
+//
+// actual_price (вычисляется при чтении) = discount_price ?? price
 // ─────────────────────────────────────────────────────────────────
 const addOrderItem = async (client, orderItemData) => {
     const {
@@ -262,9 +263,6 @@ const addStatusHistory = async (client, orderId, status, changerUserId = null) =
 
 // ─────────────────────────────────────────────────────────────────
 // Проверить наличие товара на складе (location_id = 1, Россия)
-//
-// Если variant_id передан → проверяем остаток по варианту
-// Если нет → по продукту без варианта (legacy, на случай старых данных)
 // ─────────────────────────────────────────────────────────────────
 const checkInventory = async (client, productId, requiredQuantity, variantId = null) => {
     let queryText, queryParams;
@@ -280,7 +278,6 @@ const checkInventory = async (client, productId, requiredQuantity, variantId = n
         `;
         queryParams = [variantId];
     } else {
-        // Legacy: товар без варианта
         queryText = `
             SELECT COALESCE(SUM(pi.quantity), 0)::integer AS total_available
             FROM product_inventory pi
@@ -298,17 +295,13 @@ const checkInventory = async (client, productId, requiredQuantity, variantId = n
 
     return {
         available,
-        sufficient:  available >= requiredQuantity,
-        shortage:    Math.max(0, requiredQuantity - available),
+        sufficient: available >= requiredQuantity,
+        shortage:   Math.max(0, requiredQuantity - available),
     };
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Списать товар со склада при оформлении заказа
-//
-// Всегда списываем с location_id = 1 (Россия — основной склад заказов)
-// Если variant_id передан → списываем по варианту
-// Если нет → по продукту без варианта (legacy)
+// Списать товар со склада
 // ─────────────────────────────────────────────────────────────────
 const decreaseInventory = async (client, productId, quantity, variantId = null) => {
     const whereClause = variantId
@@ -335,9 +328,7 @@ const decreaseInventory = async (client, productId, quantity, variantId = null) 
 
     const totalAvailable = warehousesRes.rows.reduce((sum, w) => sum + w.quantity, 0);
     if (totalAvailable < quantity) {
-        throw new Error(
-            `Недостаточно товара. Доступно: ${totalAvailable}, требуется: ${quantity}`
-        );
+        throw new Error(`Недостаточно товара. Доступно: ${totalAvailable}, требуется: ${quantity}`);
     }
 
     let remaining = quantity;
@@ -365,18 +356,12 @@ const decreaseInventory = async (client, productId, quantity, variantId = null) 
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Вернуть товар на склад при отмене заказа
-//
-// Если в позиции заказа есть variant_id → возвращаем по варианту
-// Иначе → по продукту без варианта (legacy)
-// Всегда на location_id = 1
+// Вернуть товар на склад
 // ─────────────────────────────────────────────────────────────────
 const returnInventory = async (client, productId, quantity, variantId = null) => {
     if (variantId) {
-        // Возврат по варианту на основной склад
         const existing = await client.query(
-            `SELECT id FROM product_inventory
-             WHERE variant_id = $1 AND location_id = 1`,
+            `SELECT id FROM product_inventory WHERE variant_id = $1 AND location_id = 1`,
             [variantId]
         );
         if (existing.rowCount > 0) {
@@ -395,7 +380,6 @@ const returnInventory = async (client, productId, quantity, variantId = null) =>
             );
         }
     } else {
-        // Legacy: возврат без варианта
         const existing = await client.query(
             `SELECT id FROM product_inventory
              WHERE product_id = $1 AND location_id = 1 AND variant_id IS NULL`,
@@ -449,7 +433,7 @@ const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
             o.created_at, o.updated_at,
             o.customer_first_name, o.customer_last_name, o.customer_phone,
 
-            COUNT(DISTINCT oi.id)       AS items_count,
+            COUNT(DISTINCT oi.id)         AS items_count,
             COALESCE(SUM(oi.quantity), 0) AS total_items_quantity,
 
             COALESCE(
@@ -466,13 +450,19 @@ const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
                         'quantity',      oi.quantity,
                         'price',         oi.price,
                         'discount_price',oi.discount_price,
+                        -- ДОБАВЛЕНО: actual_price — реальная цена за единицу, по которой купили
+                        'actual_price',  CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price
+                            ELSE oi.price
+                        END,
                         'line_total',    oi.quantity * CASE
                             WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
                             THEN oi.discount_price ELSE oi.price END
                     ) ORDER BY oi.id
                 ) FILTER (WHERE oi.id IS NOT NULL),
                 '[]'::json
-            )                           AS items
+            )                             AS items
 
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
@@ -516,6 +506,12 @@ const getOrderById = async (orderId) => {
                         'quantity',         oi.quantity,
                         'price',            oi.price,
                         'discount_price',   oi.discount_price,
+                        -- ДОБАВЛЕНО: actual_price — реальная цена за единицу
+                        'actual_price',     CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price
+                            ELSE oi.price
+                        END,
                         'line_total',       oi.quantity * CASE
                             WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
                             THEN oi.discount_price ELSE oi.price END,
@@ -608,7 +604,6 @@ const getAllOrders = async (filters = {}, limit = 20, offset = 0) => {
 
 const getAllOrdersCount = async (filters = {}) => {
     const { status, user_id, date_from, date_to, search } = filters;
-
     const conditions = [];
     const params     = [];
     let   p          = 1;
@@ -630,19 +625,15 @@ const getAllOrdersCount = async (filters = {}) => {
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-
     const res = await db.query(`
         SELECT COUNT(DISTINCT o.id) AS total
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        ${where}
+        FROM orders o LEFT JOIN users u ON o.user_id = u.id ${where}
     `, params);
-
     return parseInt(res.rows[0].total, 10);
 };
 
 const getUserOrdersCount = async (userId, status = null) => {
-    let where  = 'WHERE user_id = $1';
+    let where    = 'WHERE user_id = $1';
     const params = [userId];
     let p = 2;
 
@@ -690,7 +681,6 @@ const updateOrder = async (client, orderId, updateData) => {
     });
 
     if (updates.length === 0) throw new Error('Нет данных для обновления');
-
     updates.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(orderId);
 
@@ -748,23 +738,15 @@ const removeSelectedCartItems = async (client, userId, selectedItemIds) => {
     );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Вернуть товары в корзину (при восстановлении из отмены)
-// Теперь учитываем variant_id из позиции заказа
-// ─────────────────────────────────────────────────────────────────
 const returnItemsToCart = async (client, userId, orderItems) => {
     for (const item of orderItems) {
         const variantId = item.variant_id ?? null;
 
-        // Проверяем есть ли уже такая комбинация товар+вариант в корзине
         const existing = await client.query(`
             SELECT id, quantity FROM cart_items
             WHERE user_id = $1
               AND product_id = $2
-              AND (
-                ($3::integer IS NULL AND variant_id IS NULL)
-                OR variant_id = $3
-              )
+              AND (($3::integer IS NULL AND variant_id IS NULL) OR variant_id = $3)
         `, [userId, item.product_id, variantId]);
 
         if (existing.rowCount > 0) {
@@ -814,18 +796,15 @@ const getOrderStats = async () => {
             ORDER BY date DESC
         `),
     ]);
-
     return { overall: overallRes.rows[0], daily: dailyRes.rows };
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Удалить заказ (только pending / cancelled)
+// Удалить заказ
 // ─────────────────────────────────────────────────────────────────
 const deleteOrder = async (client, orderId) => {
     const res = await client.query(`
-        DELETE FROM orders
-        WHERE id = $1 AND status IN ('pending','cancelled')
-        RETURNING *
+        DELETE FROM orders WHERE id = $1 AND status IN ('pending','cancelled') RETURNING *
     `, [orderId]);
 
     if (res.rowCount === 0) {
@@ -835,42 +814,27 @@ const deleteOrder = async (client, orderId) => {
 };
 
 module.exports = {
-    // Корзина
     getCartItemsWithDetails,
     getSelectedCartItemsWithDetails,
     clearUserCart,
     removeSelectedCartItems,
     returnItemsToCart,
-
-    // Создание заказа
     createOrder,
     addOrderItem,
     addStatusHistory,
-
-    // Получение
     getUserOrders,
     getUserOrdersCount,
     getAllOrders,
     getAllOrdersCount,
     getOrderById,
-
-    // Обновление
     updateOrderStatus,
     updateOrder,
     recalculateOrderTotal,
-
-    // Позиции заказа
     removeOrderItem,
     updateOrderItemQuantity,
-
-    // Склад
     checkInventory,
     decreaseInventory,
     returnInventory,
-
-    // Статистика
     getOrderStats,
-
-    // Удаление
     deleteOrder,
 };

@@ -27,7 +27,7 @@ const checkoutSchema = Joi.object({
         .messages({ 'any.required': 'Укажите адрес доставки' }),
 
     payment_method: Joi.string()
-        .valid('card', 'cash', 'online', 'sbp').required()
+        .valid('card','cash','online','sbp').required()
         .messages({ 'any.required': 'Укажите способ оплаты' }),
 
     notes:           Joi.string().max(1000).optional().allow(''),
@@ -81,13 +81,50 @@ const addOrderItemSchema = Joi.object({
 // ─────────────────────────────────────────────────────────────────
 // Константы
 // ─────────────────────────────────────────────────────────────────
-
 const ORDER_STATUSES = [
     'pending','paid','processing','shipped','delivered',
     'cancelled','returned','completed',
 ];
 const CANCELLABLE_STATUSES = ['pending','paid','processing'];
 const DELETABLE_STATUSES   = ['pending','cancelled'];
+
+// ─────────────────────────────────────────────────────────────────
+// Вспомогательная: разложить final_price на price + discount_price
+// для корректного сохранения в order_items
+//
+// Логика хранения:
+//   price         — базовая цена (без скидки)
+//   discount_price — цена со скидкой (если есть, иначе null)
+//
+// Это позволяет потом считать actual_price = discount_price ?? price
+// и показывать оба значения в интерфейсе (было/стало)
+// ─────────────────────────────────────────────────────────────────
+const resolveOrderItemPrices = (item) => {
+    // Вариант с отдельной ценой
+    if (item.variant_id && item.variant_snapshot) {
+        const snap = typeof item.variant_snapshot === 'string'
+            ? JSON.parse(item.variant_snapshot)
+            : item.variant_snapshot;
+
+        if (snap.priceOverride) {
+            return {
+                price:         parseFloat(snap.priceOverride),
+                discount_price: snap.discountOverride
+                    ? parseFloat(snap.discountOverride)
+                    : null,
+            };
+        }
+    }
+
+    // Товар без переопределения цены варианта (или без варианта)
+    // item.retail_price — базовая, item.discount_price — скидочная
+    return {
+        price:          parseFloat(item.retail_price),
+        discount_price: (item.discount_price && Number(item.discount_price) > 0)
+            ? parseFloat(item.discount_price)
+            : null,
+    };
+};
 
 // ─────────────────────────────────────────────────────────────────
 // Создание заказа из корзины (для покупателя)
@@ -100,7 +137,7 @@ const createOrder = async (userId, orderData) => {
     try {
         await client.query('BEGIN');
 
-        // Обновляем профиль пользователя (только пустые поля)
+        // Обновляем профиль пользователя
         await client.query(`
             UPDATE users SET
                 first_name = CASE WHEN (first_name IS NULL OR first_name = '') THEN $1 ELSE first_name END,
@@ -118,7 +155,6 @@ const createOrder = async (userId, orderData) => {
             userId,
         ]);
 
-        // Получаем выбранные позиции корзины
         const cartItems = await orderModel.getSelectedCartItemsWithDetails(
             client, userId, value.selected_items
         );
@@ -126,18 +162,14 @@ const createOrder = async (userId, orderData) => {
             throw new AppError('Выбранные товары не найдены в корзине', 400);
         }
 
-        // Проверяем активность и наличие на складе
-        // ВАЖНО: передаём variant_id из позиции корзины!
+        // Проверяем активность и наличие
         const insufficientItems = [];
         for (const item of cartItems) {
             if (!item.is_active) {
                 throw new AppError(`Товар "${item.name}" больше недоступен`, 400);
             }
             const check = await orderModel.checkInventory(
-                client,
-                item.product_id,
-                item.cart_quantity,
-                item.variant_id ?? null   // ← ключевое исправление
+                client, item.product_id, item.cart_quantity, item.variant_id ?? null
             );
             if (!check.sufficient) {
                 insufficientItems.push({
@@ -159,16 +191,17 @@ const createOrder = async (userId, orderData) => {
             );
         }
 
-        // Считаем сумму
-        const subtotal = cartItems.reduce((sum, item) =>
-            sum + (parseFloat(item.final_price) * item.cart_quantity), 0);
+        // Считаем сумму по final_price (уже учитывает цену варианта)
+        const subtotal = cartItems.reduce(
+            (sum, item) => sum + parseFloat(item.final_price) * item.cart_quantity,
+            0
+        );
         const total_amount = subtotal + value.shipping_cost + value.tax_amount - value.discount_amount;
 
         if (total_amount < 0) {
             throw new AppError('Итоговая сумма заказа не может быть отрицательной', 400);
         }
 
-        // Создаём заказ
         const newOrder = await orderModel.createOrder(client, {
             user_id:             userId,
             total_amount,
@@ -183,25 +216,25 @@ const createOrder = async (userId, orderData) => {
             customer_phone:      value.customer_phone,
         });
 
-        // Добавляем позиции и списываем со склада
+        // Добавляем позиции с правильными ценами
         for (const item of cartItems) {
+            // ИСПРАВЛЕНО: разбиваем final_price на price + discount_price
+            // Раньше было: price = retail_price, discount_price = item.discount_price
+            // Это было неверно для вариантов с price_override_rf
+            const { price, discount_price } = resolveOrderItemPrices(item);
+
             await orderModel.addOrderItem(client, {
                 order_id:        newOrder.id,
                 product_id:      item.product_id,
                 quantity:        item.cart_quantity,
-                price:           item.retail_price,
-                discount_price:  (item.discount_price && Number(item.discount_price) > 0)
-                                    ? item.discount_price : null,
+                price,
+                discount_price,
                 variant_id:      item.variant_id ?? null,
                 variant_snapshot:item.variant_snapshot ?? null,
             });
 
-            // ВАЖНО: передаём variant_id!
             await orderModel.decreaseInventory(
-                client,
-                item.product_id,
-                item.cart_quantity,
-                item.variant_id ?? null   // ← ключевое исправление
+                client, item.product_id, item.cart_quantity, item.variant_id ?? null
             );
         }
 
@@ -212,7 +245,6 @@ const createOrder = async (userId, orderData) => {
 
         const fullOrder = await orderModel.getOrderById(newOrder.id);
 
-        // Уведомления
         if (value.payment_method === 'cash') {
             telegramService
                 .sendNewOrderNotification(fullOrder, `ORD-${String(newOrder.id).padStart(6, '0')}`)
@@ -220,13 +252,13 @@ const createOrder = async (userId, orderData) => {
 
             emailService.sendOrderConfirmation(fullOrder.user_email, {
                 orderNumber: `ORD-${String(newOrder.id).padStart(6, '0')}`,
-                order: fullOrder,
+                order:       fullOrder,
             }).catch(err => console.error('[Email]', err));
         }
 
         return {
-            success:      true,
-            message:      'Заказ успешно оформлен',
+            success:     true,
+            message:     'Заказ успешно оформлен',
             data: {
                 order:         fullOrder,
                 order_number:  `ORD-${String(newOrder.id).padStart(6, '0')}`,
@@ -246,14 +278,11 @@ const createOrder = async (userId, orderData) => {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Создание заказа с немедленной оплатой (card / online / sbp)
+// Создание заказа с немедленной онлайн-оплатой
 // ─────────────────────────────────────────────────────────────────
 const createOrderWithPayment = async (userId, orderData) => {
     if (!['card','online','sbp'].includes(orderData.payment_method)) {
-        throw new AppError(
-            'Этот метод только для онлайн-оплаты (card, online, sbp).',
-            400
-        );
+        throw new AppError('Этот метод только для онлайн-оплаты (card, online, sbp).', 400);
     }
 
     const orderResult = await createOrder(userId, orderData);
@@ -291,7 +320,7 @@ const createOrderWithPayment = async (userId, orderData) => {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Создание заказа администратором (указывает товары вручную)
+// Создание заказа администратором
 // ─────────────────────────────────────────────────────────────────
 const createAdminOrder = async (adminUserId, orderData) => {
     const { error, value } = createAdminOrderSchema.validate(orderData);
@@ -301,21 +330,20 @@ const createAdminOrder = async (adminUserId, orderData) => {
     try {
         await client.query('BEGIN');
 
-        // Проверяем пользователя
         const userRes = await client.query(
             'SELECT id FROM users WHERE id = $1 AND is_active = TRUE',
             [value.user_id]
         );
         if (userRes.rowCount === 0) throw new AppError('Пользователь не найден или неактивен', 404);
 
-        // Получаем детали каждого товара
-        const items      = [];
-        let   subtotal   = 0;
+        const items    = [];
+        let   subtotal = 0;
 
         for (const item of value.items) {
+            const variantId = item.variant_id ?? null;
+
             const productRes = await client.query(`
-                SELECT
-                    id, name, sku, retail_price, discount_price, is_active,
+                SELECT id, name, sku, retail_price, discount_price, is_active,
                     CASE
                         WHEN discount_price IS NOT NULL AND discount_price > 0
                         THEN discount_price ELSE retail_price
@@ -328,13 +356,17 @@ const createAdminOrder = async (adminUserId, orderData) => {
                 throw new AppError(`Товар с ID ${item.product_id} не найден или недоступен`, 404);
             }
 
-            const product  = productRes.rows[0];
-            const variantId = item.variant_id ?? null;
+            const product = productRes.rows[0];
 
-            // Если передан вариант — проверяем его существование
+            // Если передан вариант — получаем его цену
+            let variantPriceOverride    = null;
+            let variantDiscountOverride = null;
+            let variantSnapshot         = null;
+
             if (variantId) {
                 const variantRes = await client.query(
-                    `SELECT id FROM product_variants
+                    `SELECT id, name, options, sku, price_override_rf, discount_override_rf
+                     FROM product_variants
                      WHERE id = $1 AND product_id = $2 AND is_active = TRUE`,
                     [variantId, item.product_id]
                 );
@@ -344,13 +376,37 @@ const createAdminOrder = async (adminUserId, orderData) => {
                         404
                     );
                 }
+                const variant = variantRes.rows[0];
+                variantPriceOverride    = variant.price_override_rf;
+                variantDiscountOverride = variant.discount_override_rf;
+                variantSnapshot = {
+                    id:               variant.id,
+                    name:             variant.name,
+                    options:          variant.options,
+                    sku:              variant.sku,
+                    priceOverride:    variant.price_override_rf,
+                    discountOverride: variant.discount_override_rf,
+                };
             }
 
-            subtotal += parseFloat(product.final_price) * item.quantity;
-            items.push({ ...product, cart_quantity: item.quantity, variant_id: variantId });
+            // Вычисляем финальную цену
+            const finalPrice = variantPriceOverride
+                ? (variantDiscountOverride || variantPriceOverride)
+                : parseFloat(product.final_price);
+
+            subtotal += finalPrice * item.quantity;
+            items.push({
+                ...product,
+                cart_quantity:          item.quantity,
+                variant_id:             variantId,
+                variant_snapshot:       variantSnapshot,
+                price_override_rf:      variantPriceOverride,
+                discount_override_rf:   variantDiscountOverride,
+                final_price:            finalPrice,
+            });
         }
 
-        // Проверяем наличие — с variant_id!
+        // Проверка наличия
         const insufficientItems = [];
         for (const item of items) {
             const check = await orderModel.checkInventory(
@@ -391,18 +447,26 @@ const createAdminOrder = async (adminUserId, orderData) => {
         });
 
         for (const item of items) {
+            // ИСПРАВЛЕНО: сохраняем цену варианта, если есть
+            const price         = item.price_override_rf
+                ? parseFloat(item.price_override_rf)
+                : parseFloat(item.retail_price);
+            const discount_price = item.discount_override_rf
+                ? parseFloat(item.discount_override_rf)
+                : (item.discount_price && Number(item.discount_price) > 0
+                    ? parseFloat(item.discount_price)
+                    : null);
+
             await orderModel.addOrderItem(client, {
                 order_id:        newOrder.id,
                 product_id:      item.id,
                 quantity:        item.cart_quantity,
-                price:           item.retail_price,
-                discount_price:  (item.discount_price && Number(item.discount_price) > 0)
-                                    ? item.discount_price : null,
+                price,
+                discount_price,
                 variant_id:      item.variant_id,
-                variant_snapshot:null,
+                variant_snapshot:item.variant_snapshot,
             });
 
-            // Списываем с variant_id!
             await orderModel.decreaseInventory(
                 client, item.id, item.cart_quantity, item.variant_id
             );
@@ -447,7 +511,7 @@ const getUserOrders = async (userId, page = 1, limit = 10, status = null) => {
     ]);
     const totalPages = Math.ceil(total / limit);
     return {
-        success: true,
+        success:    true,
         orders,
         pagination: { total, page: +page, limit: +limit, totalPages, hasMore: page < totalPages },
     };
@@ -461,7 +525,7 @@ const getAllOrders = async (filters = {}, page = 1, limit = 20) => {
     ]);
     const totalPages = Math.ceil(total / limit);
     return {
-        success: true,
+        success:    true,
         orders,
         pagination: { total, page: +page, limit: +limit, totalPages, hasMore: page < totalPages },
     };
@@ -480,8 +544,6 @@ const getOrderDetails = async (orderId, userId = null, role = 'customer') => {
 
 // ─────────────────────────────────────────────────────────────────
 // Обновить статус заказа
-// При отмене → возвращаем товары (с variant_id!)
-// При восстановлении из отмены → списываем (с variant_id!)
 // ─────────────────────────────────────────────────────────────────
 const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') => {
     if (!ORDER_STATUSES.includes(newStatus)) {
@@ -501,19 +563,16 @@ const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') 
         await orderModel.updateOrderStatus(client, orderId, newStatus);
         await orderModel.addStatusHistory(client, orderId, newStatus, changerUserId);
 
-        // Отмена → возвращаем товары на склад с variant_id
+        // Отмена → возвращаем товары с variant_id
         if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
             for (const item of (currentOrder.items || [])) {
                 await orderModel.returnInventory(
-                    client,
-                    item.product_id,
-                    item.quantity,
-                    item.variant_id ?? null   // ← ключевое исправление
+                    client, item.product_id, item.quantity, item.variant_id ?? null
                 );
             }
         }
 
-        // Восстановление из отмены → списываем снова с variant_id
+        // Восстановление из отмены → проверяем и списываем
         if (oldStatus === 'cancelled' && newStatus !== 'cancelled') {
             const insufficientItems = [];
             for (const item of (currentOrder.items || [])) {
@@ -565,9 +624,6 @@ const updateOrderStatus = async (orderId, newStatus, changerUserId, notes = '') 
     }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Обновить данные заказа
-// ─────────────────────────────────────────────────────────────────
 const updateOrder = async (orderId, updateData, userId, role) => {
     const { error, value } = updateOrderSchema.validate(updateData);
     if (error) throw new AppError(error.details[0].message, 400);
@@ -596,9 +652,6 @@ const updateOrder = async (orderId, updateData, userId, role) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Отменить заказ (покупатель)
-// ─────────────────────────────────────────────────────────────────
 const cancelOrder = async (userId, orderId, reason = '') => {
     const order = await orderModel.getOrderById(orderId);
     if (!order) throw new AppError('Заказ не найден', 404);
@@ -615,9 +668,6 @@ const cancelOrder = async (userId, orderId, reason = '') => {
     return updateOrderStatus(orderId, 'cancelled', userId, reason);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Добавить товар в существующий заказ (Admin)
-// ─────────────────────────────────────────────────────────────────
 const addItemToOrder = async (orderId, itemData, userId, role) => {
     const { error, value } = addOrderItemSchema.validate(itemData);
     if (error) throw new AppError(error.details[0].message, 400);
@@ -638,6 +688,7 @@ const addItemToOrder = async (orderId, itemData, userId, role) => {
             [value.product_id]
         );
         if (productRes.rowCount === 0) throw new AppError('Товар не найден или недоступен', 404);
+
         const product  = productRes.rows[0];
         const variantId = value.variant_id ?? null;
 
@@ -662,14 +713,14 @@ const addItemToOrder = async (orderId, itemData, userId, role) => {
             order_id:      orderId,
             product_id:    value.product_id,
             quantity:      value.quantity,
-            price:         product.retail_price,
-            discount_price:product.discount_price,
+            price:         parseFloat(product.retail_price),
+            discount_price:(product.discount_price && Number(product.discount_price) > 0)
+                ? parseFloat(product.discount_price) : null,
             variant_id:    variantId,
         });
 
         await orderModel.decreaseInventory(client, value.product_id, value.quantity, variantId);
         await orderModel.recalculateOrderTotal(client, orderId);
-
         await client.query('COMMIT');
 
         const updatedOrder = await orderModel.getOrderById(orderId);
@@ -684,9 +735,6 @@ const addItemToOrder = async (orderId, itemData, userId, role) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Удалить товар из заказа (Admin)
-// ─────────────────────────────────────────────────────────────────
 const removeItemFromOrder = async (orderId, orderItemId, userId, role) => {
     if (role !== 'admin' && role !== 'manager') {
         throw new AppError('Только администратор может удалять товары из заказов', 403);
@@ -703,15 +751,9 @@ const removeItemFromOrder = async (orderId, orderItemId, userId, role) => {
         if (!item) throw new AppError('Товар не найден в заказе', 404);
 
         await orderModel.removeOrderItem(client, orderItemId);
-
-        // Возвращаем на склад с variant_id
         await orderModel.returnInventory(
-            client,
-            item.product_id,
-            item.quantity,
-            item.variant_id ?? null
+            client, item.product_id, item.quantity, item.variant_id ?? null
         );
-
         await orderModel.recalculateOrderTotal(client, orderId);
         await client.query('COMMIT');
 
@@ -727,17 +769,11 @@ const removeItemFromOrder = async (orderId, orderItemId, userId, role) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Статистика
-// ─────────────────────────────────────────────────────────────────
 const getOrderStatistics = async () => {
     const stats = await orderModel.getOrderStats();
     return { success: true, stats: stats.overall, daily_stats: stats.daily };
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Удалить заказ (Admin, только pending/cancelled)
-// ─────────────────────────────────────────────────────────────────
 const deleteOrder = async (orderId, userId, role) => {
     if (role !== 'admin' && role !== 'manager') {
         throw new AppError('Только администратор может удалять заказы', 403);
@@ -758,7 +794,6 @@ const deleteOrder = async (orderId, userId, role) => {
             );
         }
 
-        // Если не отменён — возвращаем товары с variant_id
         if (order.status !== 'cancelled') {
             for (const item of (order.items || [])) {
                 await orderModel.returnInventory(

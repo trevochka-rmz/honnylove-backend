@@ -50,7 +50,7 @@ const getProductByIdentifier = async (req, res, next, isAdmin = false) => {
 const createProduct = [
     upload.fields([
         { name: 'mainImage', maxCount: 1  },
-        { name: 'gallery',   maxCount: 10 },
+        { name: 'gallery',   maxCount: 2 },
     ]),
     async (req, res, next) => {
         try {
@@ -72,7 +72,7 @@ const createProduct = [
 const updateProduct = [
     upload.fields([
         { name: 'mainImage', maxCount: 1  },
-        { name: 'gallery',   maxCount: 10 },
+        { name: 'gallery',   maxCount: 2 },
     ]),
     async (req, res, next) => {
         try {

@@ -25,7 +25,7 @@ const STATUS_LABELS = {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Базовая отправка сообщения в Telegram
+// Базовая отправка
 // ─────────────────────────────────────────────────────────────────
 const sendMessage = async (text, orderId = null) => {
     if (!BOT_TOKEN || !CHAT_ID) {
@@ -42,12 +42,10 @@ const sendMessage = async (text, orderId = null) => {
 
     if (orderId) {
         payload.reply_markup = {
-            inline_keyboard: [[
-                {
-                    text: 'Открыть заказ в админке',
-                    url:  `${ADMIN_URL}/orders/${orderId}`,
-                },
-            ]],
+            inline_keyboard: [[{
+                text: 'Открыть заказ в админке',
+                url:  `${ADMIN_URL}/orders/${orderId}`,
+            }]],
         };
     }
 
@@ -70,9 +68,7 @@ const sendMessage = async (text, orderId = null) => {
                 res.on('end', () => {
                     try {
                         const parsed = JSON.parse(data);
-                        if (!parsed.ok) {
-                            console.error('[Telegram] Ошибка API:', parsed.description);
-                        }
+                        if (!parsed.ok) console.error('[Telegram] Ошибка API:', parsed.description);
                         resolve(parsed);
                     } catch {
                         resolve(null);
@@ -90,29 +86,38 @@ const sendMessage = async (text, orderId = null) => {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Вспомогательная: форматировать название варианта
-// Если у позиции есть variant_name или variant_options — показываем
+// Получить метку варианта из позиции заказа
+//
+// ИСПРАВЛЕНО: variant_options из JSON-агрегации postgres приходит
+// уже как объект (не строка), но variant_snapshot может быть строкой.
+// Добавлена безопасная десериализация для обоих случаев.
 // ─────────────────────────────────────────────────────────────────
+const safeParseJson = (val) => {
+    if (!val) return null;
+    if (typeof val === 'object') return val;
+    try { return JSON.parse(val); } catch { return null; }
+};
+
 const formatVariantLabel = (item) => {
-    // variant_name — строка вида "50 мл" или "XL / Синий"
+    // 1. variant_name — прямое поле из JOIN product_variants
     if (item.variant_name) return item.variant_name;
 
-    // variant_options — объект вида {"Объём":"50 мл"} или {"Размер":"XL","Цвет":"Синий"}
-    if (item.variant_options && typeof item.variant_options === 'object') {
-        const entries = Object.entries(item.variant_options);
+    // 2. variant_options — объект {"Объём":"50 мл"} из JOIN product_variants
+    const options = safeParseJson(item.variant_options);
+    if (options && typeof options === 'object') {
+        const entries = Object.entries(options);
         if (entries.length > 0) {
             return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
         }
     }
 
-    // variant_snapshot — JSON снимок из order_items
-    if (item.variant_snapshot) {
-        const snap = typeof item.variant_snapshot === 'string'
-            ? JSON.parse(item.variant_snapshot)
-            : item.variant_snapshot;
+    // 3. variant_snapshot — JSON снимок, сохранённый при создании заказа
+    const snap = safeParseJson(item.variant_snapshot);
+    if (snap) {
         if (snap.name) return snap.name;
-        if (snap.options && typeof snap.options === 'object') {
-            const entries = Object.entries(snap.options);
+        const snapOptions = safeParseJson(snap.options);
+        if (snapOptions && typeof snapOptions === 'object') {
+            const entries = Object.entries(snapOptions);
             if (entries.length > 0) {
                 return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
             }
@@ -124,7 +129,6 @@ const formatVariantLabel = (item) => {
 
 // ─────────────────────────────────────────────────────────────────
 // Уведомление о новом заказе
-// ИСПРАВЛЕНО: добавлено отображение варианта в списке товаров
 // ─────────────────────────────────────────────────────────────────
 const sendNewOrderNotification = async (order, orderNumber) => {
     const clientName = [order.customer_first_name, order.customer_last_name]
@@ -137,12 +141,9 @@ const sendNewOrderNotification = async (order, orderNumber) => {
 
     const itemsList = (order.items || [])
         .map((item, index) => {
-            const price = (item.discount_price && Number(item.discount_price) > 0)
-                ? Number(item.discount_price)
-                : Number(item.price);
+            const price     = Number(item.actual_price ?? item.discount_price ?? item.price);
             const lineTotal = price * item.quantity;
 
-            // Вариант: показываем если есть
             const variantLabel = formatVariantLabel(item);
             const variantLine  = variantLabel ? `   Вариант: ${variantLabel}\n` : '';
 
@@ -157,7 +158,8 @@ const sendNewOrderNotification = async (order, orderNumber) => {
         .join('\n\n');
 
     const subtotal = (order.items || []).reduce((sum, item) => {
-        return sum + Number(item.discount_price || item.price) * item.quantity;
+        const price = Number(item.actual_price ?? item.discount_price ?? item.price);
+        return sum + price * item.quantity;
     }, 0);
 
     const text =
@@ -187,9 +189,6 @@ const sendNewOrderNotification = async (order, orderNumber) => {
     return sendMessage(text, order.id);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Уведомление об изменении статуса
-// ─────────────────────────────────────────────────────────────────
 const sendStatusChangeNotification = async (order, orderNumber, oldStatus, newStatus) => {
     const clientName = [order.user_first_name, order.user_last_name]
         .filter(Boolean).join(' ') || order.user_email || `ID: ${order.user_id}`;
@@ -207,9 +206,6 @@ const sendStatusChangeNotification = async (order, orderNumber, oldStatus, newSt
     return sendMessage(text, order.id);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Уведомление об отмене оплаты
-// ─────────────────────────────────────────────────────────────────
 const sendPaymentCancelledNotification = async (order, orderNumber) => {
     const clientName = [order.customer_first_name, order.customer_last_name]
         .filter(Boolean).join(' ') || order.user_email || '—';
