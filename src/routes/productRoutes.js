@@ -253,6 +253,150 @@ router.delete(
   productController.deleteProduct
 );
 
+
+// =====================================
+// МАРШРУТЫ ДЛЯ УПРАВЛЕНИЯ ВАРИАНТАМИ ТОВАРОВ
+// =====================================
+
+/**
+ * Получить все варианты товара
+ * GET /api/products/:productId/variants
+ * Доступ: Public
+ *
+ * Параметры URL:
+ * - productId: число, ID товара
+ *
+ * Возвращает только активные варианты (is_active = TRUE)
+ * Отсортированы по sort_order ASC, id ASC
+ * stockQuantity — суммарное количество из product_inventory по всем складам
+ *
+ * Ответ 200: массив объектов вариантов
+ * [
+ *   {
+ *     "id": 1,
+ *     "productId": 123,
+ *     "name": "50 мл",
+ *     "options": { "Размер": "XL", "Цвет": "Синий" },
+ *     "sku": "SKU-001",
+ *     "mainImageUrl": "https://...",
+ *     "imageUrls": ["https://...", "https://..."],
+ *     "priceOverride": null,        // переопределение цены (RUB), null = берётся у товара
+ *     "discountOverride": null,     // переопределение скидки (RUB), null = берётся у товара
+ *     "priceOverrideKg": null,      // переопределение цены (KGS), null = берётся у товара
+ *     "discountOverrideKg": null,   // переопределение скидки (KGS), null = берётся у товара
+ *     "stockQuantity": 10,          // суммарный остаток из инвентаря
+ *     "isNew": null,                // null = наследует значение родительского товара
+ *     "isBestseller": null,         // null = наследует значение родительского товара
+ *     "isFeatured": null,           // null = наследует значение родительского товара
+ *     "isActive": true,
+ *     "isAvailable": true,
+ *     "sortOrder": 0,
+ *     "createdAt": "2024-01-01T00:00:00.000Z",
+ *     "updatedAt": "2024-01-01T00:00:00.000Z"
+ *   }
+ * ]
+ * Ответ 400: { "message": "Неверный ID товара" }
+ */
+router.get('/:productId/variants', variantController.getVariants);
+
+/**
+ * Создать новый вариант товара
+ * POST /api/products/:productId/variants
+ * Доступ: Admin
+ * Content-Type: multipart/form-data
+ *
+ * Параметры URL:
+ * - productId: число, ID товара
+ *
+ * Поля FormData:
+ * - name: строка, название варианта (обязательно, например "XL / Синий")
+ * - options: JSON строка, ключ-значение опций (по умолчанию {})
+ *     Пример: '{"Размер":"XL","Цвет":"Синий"}'
+ * - sku: строка, артикул варианта (опционально)
+ * - priceOverride: число, цена в рублях (null = берётся у товара)
+ * - discountOverride: число, скидочная цена в рублях (null = берётся у товара)
+ *     Должна быть меньше priceOverride если оба заданы
+ * - priceOverrideKg: число, цена в сомах (null = берётся у товара)
+ * - discountOverrideKg: число, скидочная цена в сомах (null = берётся у товара)
+ * - stockQuantity: число, начальное количество на складе (по умолчанию 0)
+ *     Записывается в product_inventory, не в таблицу вариантов напрямую
+ * - isNew: "true" | "false" | "null" (null = наследует у товара)
+ * - isBestseller: "true" | "false" | "null" (null = наследует у товара)
+ * - isFeatured: "true" | "false" | "null" (null = наследует у товара)
+ * - isAvailable: "true" | "false" (доступен ли для продажи, по умолчанию "true")
+ * - sortOrder: число, порядок сортировки (по умолчанию 0)
+ *
+ * Файлы:
+ * - variantMainImage: 1 файл, главное изображение варианта (опционально)
+ * - variantGallery: до 5 файлов, галерея изображений (опционально)
+ *
+ * Ответ 201: объект созданного варианта (формат как в GET)
+ * Ответ 400: { "message": "Поле name обязательно" }
+ * Ответ 400: { "message": "Неверный формат options (ожидается JSON объект)" }
+ * Ответ 400: { "message": "Цена со скидкой должна быть меньше основной цены" }
+ */
+router.post('/:productId/variants', authenticate, requireRole(['admin']), variantController.createVariant);
+
+/**
+ * Обновить вариант товара
+ * PUT /api/products/:productId/variants/:variantId
+ * Доступ: Admin
+ * Content-Type: multipart/form-data
+ *
+ * Параметры URL:
+ * - productId: число, ID товара
+ * - variantId: число, ID варианта
+ *
+ * Поля FormData (все опциональные — передавай только то что меняется):
+ * - name: строка, название варианта
+ * - options: JSON строка, ключ-значение опций
+ * - sku: строка или "" (пустая строка сохраняется как null)
+ * - priceOverride: число или "" или "0" (пустая строка / "0" сохраняется как null)
+ * - discountOverride: число или "" или "0"
+ * - priceOverrideKg: число или "" или "0"
+ * - discountOverrideKg: число или "" или "0"
+ * - stockQuantity: число, новое количество на складе (обновляется в product_inventory)
+ * - isNew: "true" | "false" | "null"
+ * - isBestseller: "true" | "false" | "null"
+ * - isFeatured: "true" | "false" | "null"
+ * - isActive: "true" | "false", активен ли вариант
+ * - isAvailable: "true" | "false", доступен ли для продажи
+ * - sortOrder: число, порядок сортировки
+ *
+ * Файлы (опционально):
+ * - variantMainImage: 1 файл (если передан — старое изображение удаляется из S3)
+ * - variantGallery: до 5 файлов (если переданы — вся старая галерея заменяется)
+ *
+ * Ответ 200: объект обновлённого варианта (формат как в GET)
+ * Ответ 404: { "message": "Вариант не найден" }
+ * Ответ 400: { "message": "Неверный ID" }
+ * Ответ 400: { "message": "Неверный формат options (ожидается JSON объект)" }
+ */
+router.put('/:productId/variants/:variantId', authenticate, requireRole(['admin']), variantController.updateVariant);
+
+/**
+ * Удалить вариант товара (мягкое удаление)
+ * DELETE /api/products/:productId/variants/:variantId
+ * Доступ: Admin
+ *
+ * Параметры URL:
+ * - productId: число, ID товара
+ * - variantId: число, ID варианта
+ *
+ * Особенности:
+ * - Не удаляет запись из БД, а устанавливает is_active = FALSE
+ * - Изображения варианта удаляются из S3
+ * - Количество в product_inventory обнуляется (quantity = 0)
+ *
+ * Ответ 204: пустое тело
+ * Ответ 404: { "message": "Вариант не найден" }
+ * Ответ 400: { "message": "Неверный ID" }
+ */
+router.delete('/:productId/variants/:variantId', authenticate, requireRole(['admin']), variantController.deleteVariant);
+
+
+
+
 /**
  * Получить один товар по ID или slug
  * GET /api/products/:identifier
@@ -274,122 +418,5 @@ router.delete(
 router.get('/:identifier', (req, res, next) =>
   productController.getProductByIdentifier(req, res, next, false)
 );
-
-// =====================================
-// МАРШРУТЫ ДЛЯ УПРАВЛЕНИЯ ВАРИАНТАМИ ТОВАРОВ
-// =====================================
-
-/**
- * Получить все варианты товара
- * GET /api/products/:productId/variants
- * Доступ: Public
- *
- * Параметры URL:
- * - productId: число, ID товара
- *
- * Возвращает только активные варианты (is_active = TRUE)
- * Отсортированы по sort_order ASC, id ASC
- *
- * Ответ 200: массив объектов вариантов
- * [
- *   {
- *     "id": 1,
- *     "productId": 123,
- *     "name": "50 мл",
- *     "options": {"color": "red"},
- *     "sku": "SKU-001",
- *     "mainImageUrl": "https://...",
- *     "imageUrls": ["https://...", "https://..."],
- *     "priceOverride": null,
- *     "discountOverride": null,
- *     "stockQuantity": 10,
- *     "isActive": true,
- *     "isAvailable": true,
- *     "sortOrder": 0
- *   }
- * ]
- * Ответ 400: { "message": "Неверный ID товара" }
- */
-router.get('/:productId/variants', variantController.getVariants);
-
-/**
- * Создать новый вариант товара
- * POST /api/products/:productId/variants
- * Доступ: Admin
- * Content-Type: multipart/form-data
- *
- * Параметры URL:
- * - productId: число, ID товара
- *
- * Поля FormData:
- * - name: строка, название варианта (обязательно)
- * - options: JSON строка, дополнительные опции (по умолчанию {})
- * - priceOverride: число, переопределение цены (по умолчанию null)
- * - discountOverride: число, переопределение скидки (по умолчанию null)
- * - priceOverrideKg: число, цена за кг (по умолчанию null)
- * - discountOverrideKg: число, скидка за кг (по умолчанию null)
- * - stockQuantity: число, количество на складе (по умолчанию 0)
- * - isAvailable: "true" | "false" (по умолчанию "true")
- * - sortOrder: число, порядок сортировки (по умолчанию 0)
- *
- * Файлы:
- * - variantMainImage: 1 файл, главное изображение варианта (опционально)
- * - variantGallery: до 5 файлов, галерея изображений (опционально)
- *
- * Ответ 201: объект созданного варианта
- * Ответ 400: { "message": "Поле name обязательно" } или "Неверный формат options"
- */
-router.post('/:productId/variants', authenticate, requireRole(['admin']), variantController.createVariant);
-
-/**
- * Обновить вариант товара
- * PUT /api/products/:productId/variants/:variantId
- * Доступ: Admin
- * Content-Type: multipart/form-data
- *
- * Параметры URL:
- * - productId: число, ID товара
- * - variantId: число, ID варианта
- *
- * Поля FormData (все опциональные):
- * - name: строка, название варианта
- * - options: JSON строка, дополнительные опции
- * - priceOverride: число или "" или "0" (null убирает переопределение)
- * - discountOverride: число или "" или "0" (null убирает переопределение)
- * - priceOverrideKg: число или "" или "0" (null убирает переопределение)
- * - discountOverrideKg: число или "" или "0" (null убирает переопределение)
- * - stockQuantity: число, количество на складе
- * - isActive: "true" | "false", активен ли вариант
- * - isAvailable: "true" | "false", доступен ли для продажи
- * - sortOrder: число, порядок сортировки
- *
- * Файлы (опционально):
- * - variantMainImage: 1 файл (если передан — старое удаляется)
- * - variantGallery: до 5 файлов (если переданы — старая галерея полностью заменяется)
- *
- * Ответ 200: объект обновлённого варианта
- * Ответ 404: { "message": "Вариант не найден" }
- * Ответ 400: { "message": "Неверный ID" } или "Неверный формат options"
- */
-router.put('/:productId/variants/:variantId', authenticate, requireRole(['admin']), variantController.updateVariant);
-
-/**
- * Удалить вариант товара (мягкое удаление)
- * DELETE /api/products/:productId/variants/:variantId
- * Доступ: Admin
- *
- * Параметры URL:
- * - productId: число, ID товара
- * - variantId: число, ID варианта
- *
- * Особенности:
- * - Не удаляет запись из БД, а устанавливает is_active = FALSE
- * - Изображения варианта удаляются из S3
- *
- * Ответ 204: пустое тело
- * Ответ 404: { "message": "Вариант не найден" }
- * Ответ 400: { "message": "Неверный ID" }
- */
-router.delete('/:productId/variants/:variantId', authenticate, requireRole(['admin']), variantController.deleteVariant);
 
 module.exports = router;

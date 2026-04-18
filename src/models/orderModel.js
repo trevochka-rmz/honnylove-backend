@@ -1,826 +1,840 @@
-// src/models/orderModel.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// src/models/orderModel.js
 const db = require('../config/db');
 
-// Получить товары из корзины пользователя с полной информацией о товарах
+// ─────────────────────────────────────────────────────────────────
+// Получить товары из корзины пользователя с полной информацией
+// ─────────────────────────────────────────────────────────────────
 const getCartItemsWithDetails = async (client, userId) => {
-  const res = await client.query(`
-    SELECT 
-      ci.id as cart_item_id,
-      ci.user_id,
-      ci.product_id,
-      ci.quantity as cart_quantity,
-      ci.created_at as added_to_cart_at,
-      
-      pp.id,
-      pp.name,
-      pp.sku,
-      pp.description,
-      pp.retail_price,
-      pp.discount_price,
-      pp.main_image_url,
-      pp.is_active,
-      
-      pb.name as brand_name,
-      pc.name as category_name,
-      
-      CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END as final_price,
-      (ci.quantity * CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END) as line_total,
-      
-      COALESCE(
-        (SELECT SUM(quantity) 
-         FROM product_inventory pi 
-         JOIN product_locations pl ON pi.location_id = pl.id
-         WHERE pi.product_id = pp.id AND pl.is_active = true),
-        0
-      ) as available_stock
-      
-    FROM cart_items ci
-    INNER JOIN product_products pp ON ci.product_id = pp.id
-    LEFT JOIN product_brands pb ON pp.brand_id = pb.id
-    LEFT JOIN product_categories pc ON pp.category_id = pc.id
-    WHERE ci.user_id = $1
-      AND pp.is_active = true
-    ORDER BY ci.created_at DESC
-  `, [userId]);
-  
-  return res.rows;
+    const res = await client.query(`
+        SELECT
+            ci.id                       AS cart_item_id,
+            ci.user_id,
+            ci.product_id,
+            ci.variant_id,
+            ci.quantity                 AS cart_quantity,
+            ci.created_at               AS added_to_cart_at,
+
+            pp.id,
+            pp.name,
+            pp.sku,
+            pp.description,
+            pp.retail_price,
+            pp.discount_price,
+            pp.main_image_url,
+            pp.is_active,
+
+            pb.name                     AS brand_name,
+            pc.name                     AS category_name,
+
+            -- Финальная цена: вариант → товар
+            CASE
+                WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+                    THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+                WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+                    THEN pp.discount_price
+                ELSE pp.retail_price
+            END                         AS final_price,
+
+            CASE
+                WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+                    THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+                WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+                    THEN pp.discount_price
+                ELSE pp.retail_price
+            END * ci.quantity           AS line_total,
+
+            COALESCE(
+                (SELECT SUM(pi.quantity)
+                 FROM product_inventory pi
+                 JOIN product_locations pl ON pi.location_id = pl.id
+                 WHERE pi.variant_id = ci.variant_id
+                   AND pi.location_id = 1
+                   AND pl.is_active = TRUE
+                ),
+                (SELECT SUM(pi.quantity)
+                 FROM product_inventory pi
+                 JOIN product_locations pl ON pi.location_id = pl.id
+                 WHERE pi.product_id = pp.id
+                   AND pi.variant_id IS NULL
+                   AND pi.location_id = 1
+                   AND pl.is_active = TRUE
+                ),
+                0
+            )                           AS available_stock,
+
+            CASE
+                WHEN ci.variant_id IS NOT NULL
+                    THEN jsonb_build_object(
+                        'id',               pv.id,
+                        'name',             pv.name,
+                        'options',          pv.options,
+                        'sku',              pv.sku,
+                        'priceOverride',    pv.price_override_rf,
+                        'discountOverride', pv.discount_override_rf,
+                        'purchaseOverride', pv.purchase_override_rf
+                    )
+                ELSE NULL
+            END                         AS variant_snapshot
+
+        FROM cart_items ci
+        INNER JOIN product_products pp ON ci.product_id = pp.id
+        LEFT JOIN product_brands pb ON pp.brand_id = pb.id
+        LEFT JOIN product_categories pc ON pp.category_id = pc.id
+        LEFT JOIN product_variants pv ON ci.variant_id = pv.id
+        WHERE ci.user_id = $1
+          AND pp.is_active = TRUE
+        ORDER BY ci.created_at DESC
+    `, [userId]);
+
+    return res.rows;
 };
 
-// Создать новый заказ в базе данных
-const createOrder = async (client, orderData) => {
-  const { 
-    user_id, 
-    total_amount, 
-    shipping_address, 
-    payment_method, 
-    shipping_cost = 0, 
-    tax_amount = 0, 
-    discount_amount = 0, 
-    notes = '',
-    tracking_number = null,
-    customer_first_name = null, 
-    customer_last_name  = null,  
-    customer_phone      = null,  
-  } = orderData;
-  
-  const res = await client.query(`
-    INSERT INTO orders (
-      user_id, status, total_amount, shipping_address, payment_method,
-      shipping_cost, tax_amount, discount_amount, notes, tracking_number,
-      customer_first_name, customer_last_name, customer_phone,
-      created_at, updated_at
-    )
-    VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-    RETURNING *
-  `, [
-    user_id, 'pending', total_amount, shipping_address, payment_method,
-    shipping_cost, tax_amount, discount_amount, notes, tracking_number,
-    customer_first_name, customer_last_name, customer_phone,
-  ]);
-  
-  return res.rows[0];
-};
-
-// Добавить товарную позицию в заказ
-const addOrderItem = async (client, orderItemData) => {
-  const { order_id, product_id, quantity, price, discount_price = null } = orderItemData;
-  
-  const res = await client.query(`
-    INSERT INTO order_items (
-      order_id, 
-      product_id, 
-      quantity, 
-      price, 
-      discount_price,
-      created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-    RETURNING *
-  `, [order_id, product_id, quantity, price, discount_price]);
-  
-  return res.rows[0];
-};
-
-// Добавить запись в историю изменения статусов заказа
-const addStatusHistory = async (client, orderId, status, changerUserId = null) => {
-  await client.query(`
-    INSERT INTO order_status_history (order_id, status, user_id, created_at)
-    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-  `, [orderId, status, changerUserId]);
-};
-
-// Получить список заказов пользователя с информацией о товарах
-const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
-  
-  let whereClause = 'WHERE o.user_id = $1';
-  const params = [userId];
-  let paramCount = 2;
-
-  // Если передан статус — фильтруем
-  // Если передан массив статусов — тоже работает
-  if (status) {
-    if (Array.isArray(status)) {
-      const placeholders = status.map((_, i) => `$${paramCount + i}`).join(',');
-      whereClause += ` AND o.status IN (${placeholders})`;
-      params.push(...status);
-      paramCount += status.length;
-    } else {
-      whereClause += ` AND o.status = $${paramCount}`;
-      params.push(status);
-      paramCount++;
-    }
-  }
-
-  const res = await db.query(`
-    SELECT 
-      o.id,
-      o.user_id,
-      o.status,
-      o.total_amount,
-      o.shipping_address,
-      o.payment_method,
-      o.shipping_cost,
-      o.tax_amount,
-      o.discount_amount,
-      o.tracking_number,
-      o.notes,
-      o.created_at,
-      o.updated_at,
-      o.customer_first_name,
-      o.customer_last_name,
-      o.customer_phone,
-      
-      COUNT(DISTINCT oi.id) as items_count,
-      COALESCE(SUM(oi.quantity), 0) as total_items_quantity,
-      
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', pp.id,
-            'product_name', pp.name,
-            'product_sku', pp.sku,
-            'product_image', pp.main_image_url,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'discount_price', oi.discount_price,
-            'line_total', oi.quantity * CASE 
-              WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
-              THEN oi.discount_price 
-              ELSE oi.price 
-            END
-          ) ORDER BY oi.id
-        ) FILTER (WHERE oi.id IS NOT NULL),
-        '[]'::json
-      ) as items
-      
-    FROM orders o
-    LEFT JOIN order_items oi ON o.id = oi.order_id
-    LEFT JOIN product_products pp ON oi.product_id = pp.id
-    ${whereClause}
-    GROUP BY o.id
-    ORDER BY o.created_at DESC
-    LIMIT $${paramCount} OFFSET $${paramCount + 1}
-  `, [...params, limit, offset]);
-  
-  return res.rows;
-};
-
-
-// Получить общее количество заказов пользователя
-const getUserOrdersCount = async (userId, status = null) => {
-  let whereClause = 'WHERE user_id = $1';
-  const params = [userId];
-  let paramCount = 2;
-
-  if (status) {
-    if (Array.isArray(status)) {
-      const placeholders = status.map((_, i) => `$${paramCount + i}`).join(',');
-      whereClause += ` AND status IN (${placeholders})`;
-      params.push(...status);
-    } else {
-      whereClause += ` AND status = $${paramCount}`;
-      params.push(status);
-    }
-  }
-
-  const res = await db.query(
-    `SELECT COUNT(*) as total FROM orders ${whereClause}`,
-    params
-  );
-  return parseInt(res.rows[0].total, 10);
-};
-
-// Получить все заказы с фильтрами для администратора
-const getAllOrders = async (filters = {}, limit = 20, offset = 0) => {
-  const { status, user_id, date_from, date_to, search } = filters;
-  
-  let whereConditions = [];
-  let params = [];
-  let paramCount = 1;
-  
-  if (status) {
-    whereConditions.push(`o.status = $${paramCount}`);
-    params.push(status);
-    paramCount++;
-  }
-  
-  if (user_id) {
-    whereConditions.push(`o.user_id = $${paramCount}`);
-    params.push(user_id);
-    paramCount++;
-  }
-  
-  if (date_from) {
-    whereConditions.push(`o.created_at >= $${paramCount}`);
-    params.push(date_from);
-    paramCount++;
-  }
-  
-  if (date_to) {
-    whereConditions.push(`o.created_at <= $${paramCount}`);
-    params.push(date_to);
-    paramCount++;
-  }
-  
-  if (search) {
-    whereConditions.push(`(
-      o.id::text ILIKE $${paramCount} OR
-      u.email ILIKE $${paramCount} OR
-      u.first_name ILIKE $${paramCount} OR
-      u.last_name ILIKE $${paramCount} OR
-      o.tracking_number ILIKE $${paramCount}
-    )`);
-    params.push(`%${search}%`);
-    paramCount++;
-  }
-  
-  const whereClause = whereConditions.length > 0 
-    ? 'WHERE ' + whereConditions.join(' AND ') 
-    : '';
-  
-  const ordersRes = await db.query(`
-    SELECT 
-      o.id,
-      o.user_id,
-      o.status,
-      o.total_amount,
-      o.shipping_address,
-      o.payment_method,
-      o.shipping_cost,
-      o.tax_amount,
-      o.discount_amount,
-      o.tracking_number,
-      o.notes,
-      o.created_at,
-      o.updated_at,
-      
-      u.email as user_email,
-      u.first_name as user_first_name,
-      u.last_name as user_last_name,
-      u.phone as user_phone,
-      
-      COUNT(DISTINCT oi.id) as items_count,
-      COALESCE(SUM(oi.quantity), 0) as total_items_quantity
-      
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN order_items oi ON o.id = oi.order_id
-    ${whereClause}
-    GROUP BY o.id, u.id
-    ORDER BY o.created_at DESC
-    LIMIT $${paramCount} OFFSET $${paramCount + 1}
-  `, [...params, limit, offset]);
-  
-  return ordersRes.rows;
-};
-
-// Получить общее количество заказов с фильтрами для администратора
-const getAllOrdersCount = async (filters = {}) => {
-  const { status, user_id, date_from, date_to, search } = filters;
-  
-  let whereConditions = [];
-  let params = [];
-  let paramCount = 1;
-  
-  if (status) {
-    whereConditions.push(`o.status = $${paramCount}`);
-    params.push(status);
-    paramCount++;
-  }
-  
-  if (user_id) {
-    whereConditions.push(`o.user_id = $${paramCount}`);
-    params.push(user_id);
-    paramCount++;
-  }
-  
-  if (date_from) {
-    whereConditions.push(`o.created_at >= $${paramCount}`);
-    params.push(date_from);
-    paramCount++;
-  }
-  
-  if (date_to) {
-    whereConditions.push(`o.created_at <= $${paramCount}`);
-    params.push(date_to);
-    paramCount++;
-  }
-  
-  if (search) {
-    whereConditions.push(`(
-      o.id::text ILIKE $${paramCount} OR
-      u.email ILIKE $${paramCount} OR
-      u.first_name ILIKE $${paramCount} OR
-      u.last_name ILIKE $${paramCount} OR
-      o.tracking_number ILIKE $${paramCount}
-    )`);
-    params.push(`%${search}%`);
-    paramCount++;
-  }
-  
-  const whereClause = whereConditions.length > 0 
-    ? 'WHERE ' + whereConditions.join(' AND ') 
-    : '';
-  
-  const res = await db.query(`
-    SELECT COUNT(DISTINCT o.id) as total
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    ${whereClause}
-  `, params);
-  
-  return parseInt(res.rows[0].total, 10);
-};
-
-// Получить заказ по ID с полной информацией о товарах и истории статусов
-const getOrderById = async (orderId) => {
-  const orderRes = await db.query(`
-    SELECT 
-      o.*,
-      
-      u.email as user_email,
-      u.first_name as user_first_name,
-      u.last_name as user_last_name,
-      u.phone as user_phone,
-      u.address as user_default_address,
-      
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', pp.id,
-            'product_name', pp.name,
-            'product_sku', pp.sku,
-            'product_image', pp.main_image_url,
-            'product_description', pp.description,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'discount_price', oi.discount_price,
-            'line_total', oi.quantity * CASE 
-              WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
-              THEN oi.discount_price 
-              ELSE oi.price 
-            END,
-            'created_at', oi.created_at
-          ) ORDER BY oi.id
-        ) FILTER (WHERE oi.id IS NOT NULL),
-        '[]'::json
-      ) as items,
-      
-      (
-        SELECT json_agg(
-          json_build_object(
-            'id', osh.id,
-            'status', osh.status,
-            'created_at', osh.created_at,
-            'changed_by_user_id', osh.user_id,
-            'changed_by_email', chu.email,
-            'changed_by_name', COALESCE(chu.first_name || ' ' || chu.last_name, chu.email)
-          ) ORDER BY osh.created_at DESC
-        )
-        FROM order_status_history osh
-        LEFT JOIN users chu ON osh.user_id = chu.id
-        WHERE osh.order_id = o.id
-      ) as status_history
-      
-    FROM orders o
-    LEFT JOIN users u ON o.user_id = u.id
-    LEFT JOIN order_items oi ON o.id = oi.order_id
-    LEFT JOIN product_products pp ON oi.product_id = pp.id
-    WHERE o.id = $1
-    GROUP BY o.id, u.id
-  `, [orderId]);
-  
-  return orderRes.rows[0] || null;
-};
-
-// Обновить статус заказа
-const updateOrderStatus = async (client, orderId, status) => {
-  const res = await client.query(`
-    UPDATE orders
-    SET status = $1, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $2
-    RETURNING *
-  `, [status, orderId]);
-  
-  return res.rows[0];
-};
-
-// Обновить данные заказа
-const updateOrder = async (client, orderId, updateData) => {
-  const allowedFields = [
-    'shipping_address',
-    'payment_method',
-    'shipping_cost',
-    'tax_amount',
-    'discount_amount',
-    'tracking_number',
-    'notes',
-    'customer_first_name',
-    'customer_last_name',
-    'customer_phone',
-  ];
-  
-  const updates = [];
-  const values = [];
-  let paramCount = 1;
-  
-  Object.keys(updateData).forEach(key => {
-    if (allowedFields.includes(key) && updateData[key] !== undefined) {
-      updates.push(`${key} = $${paramCount}`);
-      values.push(updateData[key]);
-      paramCount++;
-    }
-  });
-  
-  if (updates.length === 0) {
-    throw new Error('Нет данных для обновления');
-  }
-  
-  updates.push(`updated_at = CURRENT_TIMESTAMP`);
-  values.push(orderId);
-  
-  const res = await client.query(`
-    UPDATE orders
-    SET ${updates.join(', ')}
-    WHERE id = $${paramCount}
-    RETURNING *
-  `, values);
-  
-  return res.rows[0];
-};
-
-// Пересчитать итоговую сумму заказа на основе товаров и дополнительных сборов
-const recalculateOrderTotal = async (client, orderId) => {
-  const res = await client.query(`
-    UPDATE orders o
-    SET 
-      total_amount = (
-        SELECT 
-          COALESCE(SUM(oi.quantity * CASE 
-            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0 
-            THEN oi.discount_price 
-            ELSE oi.price 
-          END), 0)+
-          o.shipping_cost + 
-          o.tax_amount - 
-          o.discount_amount
-        FROM order_items oi
-        WHERE oi.order_id = o.id
-      ),
-      updated_at = CURRENT_TIMESTAMP
-    WHERE o.id = $1
-    RETURNING *
-  `, [orderId]);
-  
-  return res.rows[0];
-};
-
-// Удалить товарную позицию из заказа
-const removeOrderItem = async (client, orderItemId) => {
-  const res = await client.query(`
-    DELETE FROM order_items
-    WHERE id = $1
-    RETURNING *
-  `, [orderItemId]);
-  
-  return res.rows[0];
-};
-
-// Обновить количество товара в заказе
-const updateOrderItemQuantity = async (client, orderItemId, newQuantity) => {
-  const res = await client.query(`
-    UPDATE order_items
-    SET quantity = $1
-    WHERE id = $2
-    RETURNING *
-  `, [newQuantity, orderItemId]);
-  
-  return res.rows[0];
-};
-
-// Проверить наличие товара на складе
-const checkInventory = async (client, productId, requiredQuantity) => {
-  const res = await client.query(`
-    SELECT 
-      COALESCE(SUM(pi.quantity), 0) as total_available
-    FROM product_inventory pi
-    INNER JOIN product_locations pl ON pi.location_id = pl.id
-    WHERE pi.product_id = $1 
-      AND pl.is_active = true
-  `, [productId]);
-  
-  const available = parseInt(res.rows[0].total_available, 10);
-  
-  return {
-    available,
-    sufficient: available >= requiredQuantity,
-    shortage: Math.max(0, requiredQuantity - available)
-  };
-};
-
-// Уменьшить количество товара на складе при резервировании товара
-const decreaseInventory = async (client, productId, quantity) => {
-  const warehousesRes = await client.query(`
-    SELECT pi.id, pi.quantity, pi.location_id, pl.name as location_name
-    FROM product_inventory pi
-    INNER JOIN product_locations pl ON pi.location_id = pl.id
-    WHERE pi.product_id = $1 
-      AND pl.is_active = true 
-      AND pi.quantity > 0
-    ORDER BY pi.quantity DESC
-  `, [productId]);
-  
-  if (warehousesRes.rowCount === 0) {
-    throw new Error('Товар не найден на складах');
-  }
-  
-  const totalAvailable = warehousesRes.rows.reduce((sum, w) => sum + w.quantity, 0);
-  if (totalAvailable < quantity) {
-    throw new Error(`Недостаточно товара. Доступно: ${totalAvailable}, требуется: ${quantity}`);
-  }
-  
-  let remaining = quantity;
-  const decreasedFrom = [];
-  
-  for (const warehouse of warehousesRes.rows) {
-    if (remaining === 0) break;
-    
-    const toTake = Math.min(warehouse.quantity, remaining);
-    
-    await client.query(`
-      UPDATE product_inventory
-      SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [toTake, warehouse.id]);
-    
-    decreasedFrom.push({
-      location_id: warehouse.location_id,
-      location_name: warehouse.location_name,
-      quantity: toTake
-    });
-    
-    remaining -= toTake;
-  }
-  
-  return {
-    success: true,
-    decreased_from: decreasedFrom,
-    total_decreased: quantity
-  };
-};
-
-// Вернуть товар на склад при отмене заказа или возврате
-const returnInventory = async (client, productId, quantity) => {
-  const inventoryRes = await client.query(`
-    SELECT id FROM product_inventory
-    WHERE product_id = $1 AND location_id = 1
-  `, [productId]);
-  
-  if (inventoryRes.rowCount > 0) {
-    await client.query(`
-      UPDATE product_inventory
-      SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [quantity, inventoryRes.rows[0].id]);
-  } else {
-    await client.query(`
-      INSERT INTO product_inventory (product_id, location_id, quantity, min_stock_level, last_updated)
-      VALUES ($1, 1, $2, 0, CURRENT_TIMESTAMP)
-    `, [productId, quantity]);
-  }
-};
-
-// Очистить корзину пользователя после оформления заказа
-const clearUserCart = async (client, userId) => {
-  await client.query('DELETE FROM cart_items WHERE user_id = $1', [userId]);
-};
-
-// Получить статистику по заказам: общую и за последние 30 дней
-const getOrderStats = async () => {
-  const overallRes = await db.query(`
-    SELECT 
-      COUNT(*) as total_orders,
-      COALESCE(SUM(total_amount), 0) as total_revenue,
-      COALESCE(AVG(total_amount), 0) as avg_order_value,
-      COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders,
-      COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_orders,
-      COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_orders,
-      COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing_orders,
-      COUNT(CASE WHEN status = 'shipped' THEN 1 END) as shipped_orders,
-      COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered_orders,
-      COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
-      COUNT(CASE WHEN status = 'returned' THEN 1 END) as returned_orders
-    FROM orders
-  `);
-  
-  const dailyRes = await db.query(`
-    SELECT 
-      DATE(created_at) as date,
-      COUNT(*) as orders_count,
-      COALESCE(SUM(total_amount), 0) as daily_revenue,
-      COALESCE(AVG(total_amount), 0) as avg_order_value
-    FROM orders
-    WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
-    GROUP BY DATE(created_at)
-    ORDER BY date DESC
-  `);
-  
-  return {
-    overall: overallRes.rows[0],
-    daily: dailyRes.rows
-  };
-};
-
-// Удалить заказ (доступно только для статусов pending или cancelled)
-const deleteOrder = async (client, orderId) => {
-  const res = await client.query(`
-    DELETE FROM orders
-    WHERE id = $1
-      AND status IN ('pending', 'cancelled')
-    RETURNING *
-  `, [orderId]);
-  
-  if (res.rowCount === 0) {
-    throw new Error('Заказ не найден или его нельзя удалить в текущем статусе');
-  }
-  
-  return res.rows[0];
-};
-
-// Получить выбранные товары из корзины пользователя
+// ─────────────────────────────────────────────────────────────────
+// Получить выбранные товары из корзины (для предпросмотра заказа)
+// ─────────────────────────────────────────────────────────────────
 const getSelectedCartItemsWithDetails = async (client, userId, selectedItemIds) => {
-  if (!selectedItemIds || selectedItemIds.length === 0) {
-    return [];
-  }
+    if (!selectedItemIds || selectedItemIds.length === 0) return [];
 
-  const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
-  
-  const res = await client.query(`
-    SELECT 
-      ci.id as cart_item_id,
-      ci.user_id,
-      ci.product_id,
-      ci.quantity as cart_quantity,
-      ci.created_at as added_to_cart_at,
-      
-      pp.id,
-      pp.name,
-      pp.sku,
-      pp.description,
-      pp.retail_price,
-      pp.discount_price,
-      pp.main_image_url,
-      pp.is_active,
-      
-      pb.name as brand_name,
-      pc.name as category_name,
-      
-      CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END as final_price,
-      (ci.quantity * CASE 
-        WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0 
-        THEN pp.discount_price 
-        ELSE pp.retail_price 
-      END) as line_total,
-      
-      COALESCE(
-        (SELECT SUM(quantity) 
-         FROM product_inventory pi 
-         JOIN product_locations pl ON pi.location_id = pl.id
-         WHERE pi.product_id = pp.id AND pl.is_active = true),
-        0
-      ) as available_stock
-      
-    FROM cart_items ci
-    INNER JOIN product_products pp ON ci.product_id = pp.id
-    LEFT JOIN product_brands pb ON pp.brand_id = pb.id
-    LEFT JOIN product_categories pc ON pp.category_id = pc.id
-    WHERE ci.user_id = $1 
-      AND ci.id IN (${placeholders})
-      AND pp.is_active = true
-    ORDER BY ci.created_at DESC
-  `, [userId, ...selectedItemIds]);
-  
-  return res.rows;
+    const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
+
+    const res = await client.query(`
+        SELECT
+            ci.id                       AS cart_item_id,
+            ci.user_id,
+            ci.product_id,
+            ci.variant_id,
+            ci.quantity                 AS cart_quantity,
+            ci.created_at               AS added_to_cart_at,
+
+            pp.id,
+            pp.name,
+            pp.sku,
+            pp.description,
+            pp.retail_price,
+            pp.discount_price,
+            pp.main_image_url,
+            pp.is_active,
+
+            pb.name                     AS brand_name,
+            pc.name                     AS category_name,
+
+            CASE
+                WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+                    THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+                WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+                    THEN pp.discount_price
+                ELSE pp.retail_price
+            END                         AS final_price,
+
+            CASE
+                WHEN ci.variant_id IS NOT NULL AND pv.price_override_rf IS NOT NULL
+                    THEN COALESCE(pv.discount_override_rf, pv.price_override_rf)
+                WHEN pp.discount_price IS NOT NULL AND pp.discount_price > 0
+                    THEN pp.discount_price
+                ELSE pp.retail_price
+            END * ci.quantity           AS line_total,
+
+            COALESCE(
+                (SELECT SUM(pi.quantity)
+                 FROM product_inventory pi
+                 JOIN product_locations pl ON pi.location_id = pl.id
+                 WHERE pi.variant_id = ci.variant_id
+                   AND pi.location_id = 1
+                   AND pl.is_active = TRUE
+                ),
+                (SELECT SUM(pi.quantity)
+                 FROM product_inventory pi
+                 JOIN product_locations pl ON pi.location_id = pl.id
+                 WHERE pi.product_id = pp.id
+                   AND pi.variant_id IS NULL
+                   AND pi.location_id = 1
+                   AND pl.is_active = TRUE
+                ),
+                0
+            )                           AS available_stock,
+
+            CASE
+                WHEN ci.variant_id IS NOT NULL
+                    THEN jsonb_build_object(
+                        'id',               pv.id,
+                        'name',             pv.name,
+                        'options',          pv.options,
+                        'sku',              pv.sku,
+                        'priceOverride',    pv.price_override_rf,
+                        'discountOverride', pv.discount_override_rf,
+                        'purchaseOverride', pv.purchase_override_rf
+                    )
+                ELSE NULL
+            END                         AS variant_snapshot
+
+        FROM cart_items ci
+        INNER JOIN product_products pp ON ci.product_id = pp.id
+        LEFT JOIN product_brands pb ON pp.brand_id = pb.id
+        LEFT JOIN product_categories pc ON pp.category_id = pc.id
+        LEFT JOIN product_variants pv ON ci.variant_id = pv.id
+        WHERE ci.user_id = $1
+          AND ci.id IN (${placeholders})
+          AND pp.is_active = TRUE
+        ORDER BY ci.created_at DESC
+    `, [userId, ...selectedItemIds]);
+
+    return res.rows;
 };
 
-// Удалить выбранные товары из корзины
-const removeSelectedCartItems = async (client, userId, selectedItemIds) => {
-  if (!selectedItemIds || selectedItemIds.length === 0) {
-    return;
-  }
+// ─────────────────────────────────────────────────────────────────
+// Создать заказ
+// ─────────────────────────────────────────────────────────────────
+const createOrder = async (client, orderData) => {
+    const {
+        user_id,
+        total_amount,
+        shipping_address,
+        payment_method,
+        shipping_cost       = 0,
+        tax_amount          = 0,
+        discount_amount     = 0,
+        notes               = '',
+        tracking_number     = null,
+        customer_first_name = null,
+        customer_last_name  = null,
+        customer_phone      = null,
+    } = orderData;
 
-  const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
-  
-  await client.query(`
-    DELETE FROM cart_items 
-    WHERE user_id = $1 
-      AND id IN (${placeholders})
-  `, [userId, ...selectedItemIds]);
+    const res = await client.query(`
+        INSERT INTO orders (
+            user_id, status, total_amount, shipping_address, payment_method,
+            shipping_cost, tax_amount, discount_amount, notes, tracking_number,
+            customer_first_name, customer_last_name, customer_phone,
+            created_at, updated_at
+        )
+        VALUES ($1,'pending',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING *
+    `, [
+        user_id, total_amount, shipping_address, payment_method,
+        shipping_cost, tax_amount, discount_amount, notes, tracking_number,
+        customer_first_name, customer_last_name, customer_phone,
+    ]);
+
+    return res.rows[0];
 };
 
-// Вернуть товары из заказа обратно в корзину пользователя
-const returnItemsToCart = async (client, userId, orderItems) => {
-  for (const item of orderItems) {
-    // Проверяем есть ли уже такой товар в корзине
-    const existing = await client.query(`
-      SELECT id, quantity FROM cart_items 
-      WHERE user_id = $1 AND product_id = $2
-    `, [userId, item.product_id]);
+// ─────────────────────────────────────────────────────────────────
+// Добавить позицию в заказ
+//
+// ВАЖНО по структуре order_items:
+//   price         — базовая цена товара (retail_price или price_override_rf)
+//   discount_price — финальная цена если есть скидка (discount_override_rf)
+//
+// actual_price (вычисляется при чтении) = discount_price ?? price
+// ─────────────────────────────────────────────────────────────────
+const addOrderItem = async (client, orderItemData) => {
+    const {
+        order_id,
+        product_id,
+        quantity,
+        price,
+        discount_price   = null,
+        variant_id       = null,
+        variant_snapshot = null,
+    } = orderItemData;
 
-    if (existing.rowCount > 0) {
-      // Товар уже есть в корзине — увеличиваем количество
-      await client.query(`
-        UPDATE cart_items 
-        SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $2 AND product_id = $3
-      `, [item.quantity, userId, item.product_id]);
+    const res = await client.query(`
+        INSERT INTO order_items (
+            order_id, product_id, quantity, price, discount_price,
+            variant_id, variant_snapshot, created_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,CURRENT_TIMESTAMP)
+        RETURNING *
+    `, [order_id, product_id, quantity, price, discount_price, variant_id, variant_snapshot]);
+
+    return res.rows[0];
+};
+
+// ─────────────────────────────────────────────────────────────────
+// История статусов
+// ─────────────────────────────────────────────────────────────────
+const addStatusHistory = async (client, orderId, status, changerUserId = null) => {
+    await client.query(`
+        INSERT INTO order_status_history (order_id, status, user_id, created_at)
+        VALUES ($1,$2,$3,CURRENT_TIMESTAMP)
+    `, [orderId, status, changerUserId]);
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Проверить наличие товара на складе (location_id = 1, Россия)
+// ─────────────────────────────────────────────────────────────────
+const checkInventory = async (client, productId, requiredQuantity, variantId = null) => {
+    let queryText, queryParams;
+
+    if (variantId) {
+        queryText = `
+            SELECT COALESCE(SUM(pi.quantity), 0)::integer AS total_available
+            FROM product_inventory pi
+            INNER JOIN product_locations pl ON pi.location_id = pl.id
+            WHERE pi.variant_id = $1
+              AND pi.location_id = 1
+              AND pl.is_active = TRUE
+        `;
+        queryParams = [variantId];
     } else {
-      // Товара нет в корзине — добавляем
-      await client.query(`
-        INSERT INTO cart_items (user_id, product_id, quantity, created_at, updated_at)
-        VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `, [userId, item.product_id, item.quantity]);
+        queryText = `
+            SELECT COALESCE(SUM(pi.quantity), 0)::integer AS total_available
+            FROM product_inventory pi
+            INNER JOIN product_locations pl ON pi.location_id = pl.id
+            WHERE pi.product_id = $1
+              AND pi.variant_id IS NULL
+              AND pi.location_id = 1
+              AND pl.is_active = TRUE
+        `;
+        queryParams = [productId];
     }
-  }
+
+    const res = await client.query(queryText, queryParams);
+    const available = parseInt(res.rows[0].total_available, 10);
+
+    return {
+        available,
+        sufficient: available >= requiredQuantity,
+        shortage:   Math.max(0, requiredQuantity - available),
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Списать товар со склада
+// ─────────────────────────────────────────────────────────────────
+const decreaseInventory = async (client, productId, quantity, variantId = null) => {
+    const whereClause = variantId
+        ? `pi.variant_id = $1 AND pi.location_id = 1`
+        : `pi.product_id = $1 AND pi.variant_id IS NULL AND pi.location_id = 1`;
+
+    const lookupParam = variantId || productId;
+
+    const warehousesRes = await client.query(`
+        SELECT pi.id, pi.quantity, pi.location_id, pl.name AS location_name
+        FROM product_inventory pi
+        INNER JOIN product_locations pl ON pi.location_id = pl.id
+        WHERE ${whereClause} AND pl.is_active = TRUE AND pi.quantity > 0
+        ORDER BY pi.quantity DESC
+    `, [lookupParam]);
+
+    if (warehousesRes.rowCount === 0) {
+        throw new Error(
+            variantId
+                ? `Вариант (id=${variantId}) не найден на складе`
+                : `Товар (id=${productId}) не найден на складе`
+        );
+    }
+
+    const totalAvailable = warehousesRes.rows.reduce((sum, w) => sum + w.quantity, 0);
+    if (totalAvailable < quantity) {
+        throw new Error(`Недостаточно товара. Доступно: ${totalAvailable}, требуется: ${quantity}`);
+    }
+
+    let remaining = quantity;
+    const decreasedFrom = [];
+
+    for (const warehouse of warehousesRes.rows) {
+        if (remaining === 0) break;
+        const toTake = Math.min(warehouse.quantity, remaining);
+
+        await client.query(`
+            UPDATE product_inventory
+            SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
+            WHERE id = $2
+        `, [toTake, warehouse.id]);
+
+        decreasedFrom.push({
+            location_id:   warehouse.location_id,
+            location_name: warehouse.location_name,
+            quantity:      toTake,
+        });
+        remaining -= toTake;
+    }
+
+    return { success: true, decreased_from: decreasedFrom, total_decreased: quantity };
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Вернуть товар на склад
+// ─────────────────────────────────────────────────────────────────
+const returnInventory = async (client, productId, quantity, variantId = null) => {
+    if (variantId) {
+        const existing = await client.query(
+            `SELECT id FROM product_inventory WHERE variant_id = $1 AND location_id = 1`,
+            [variantId]
+        );
+        if (existing.rowCount > 0) {
+            await client.query(
+                `UPDATE product_inventory
+                 SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
+                 WHERE variant_id = $2 AND location_id = 1`,
+                [quantity, variantId]
+            );
+        } else {
+            await client.query(
+                `INSERT INTO product_inventory
+                    (product_id, location_id, variant_id, quantity, min_stock_level, last_updated)
+                 VALUES ($1, 1, $2, $3, 0, CURRENT_TIMESTAMP)`,
+                [productId, variantId, quantity]
+            );
+        }
+    } else {
+        const existing = await client.query(
+            `SELECT id FROM product_inventory
+             WHERE product_id = $1 AND location_id = 1 AND variant_id IS NULL`,
+            [productId]
+        );
+        if (existing.rowCount > 0) {
+            await client.query(
+                `UPDATE product_inventory
+                 SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
+                 WHERE product_id = $2 AND location_id = 1 AND variant_id IS NULL`,
+                [quantity, productId]
+            );
+        } else {
+            await client.query(
+                `INSERT INTO product_inventory
+                    (product_id, location_id, quantity, min_stock_level, last_updated)
+                 VALUES ($1, 1, $2, 0, CURRENT_TIMESTAMP)`,
+                [productId, quantity]
+            );
+        }
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Получить заказы пользователя
+// ─────────────────────────────────────────────────────────────────
+const getUserOrders = async (userId, limit = 10, offset = 0, status = null) => {
+    let whereClause = 'WHERE o.user_id = $1';
+    const params    = [userId];
+    let paramCount  = 2;
+
+    if (status) {
+        if (Array.isArray(status)) {
+            const placeholders = status.map((_, i) => `$${paramCount + i}`).join(',');
+            whereClause += ` AND o.status IN (${placeholders})`;
+            params.push(...status);
+            paramCount += status.length;
+        } else {
+            whereClause += ` AND o.status = $${paramCount}`;
+            params.push(status);
+            paramCount++;
+        }
+    }
+
+    const res = await db.query(`
+        SELECT
+            o.id, o.user_id, o.status, o.total_amount,
+            o.shipping_address, o.payment_method,
+            o.shipping_cost, o.tax_amount, o.discount_amount,
+            o.tracking_number, o.notes,
+            o.created_at, o.updated_at,
+            o.customer_first_name, o.customer_last_name, o.customer_phone,
+
+            COUNT(DISTINCT oi.id)         AS items_count,
+            COALESCE(SUM(oi.quantity), 0) AS total_items_quantity,
+
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'id',            oi.id,
+                        'product_id',    pp.id,
+                        'product_name',  pp.name,
+                        'product_sku',   pp.sku,
+                        'product_image', COALESCE(pv.main_image_url, pp.main_image_url),
+                        'variant_id',    oi.variant_id,
+                        'variant_name',  pv.name,
+                        'variant_options', pv.options,
+                        'quantity',      oi.quantity,
+                        'price',         oi.price,
+                        'discount_price',oi.discount_price,
+                        -- ДОБАВЛЕНО: actual_price — реальная цена за единицу, по которой купили
+                        'actual_price',  CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price
+                            ELSE oi.price
+                        END,
+                        'line_total',    oi.quantity * CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price ELSE oi.price END
+                    ) ORDER BY oi.id
+                ) FILTER (WHERE oi.id IS NOT NULL),
+                '[]'::json
+            )                             AS items
+
+        FROM orders o
+        LEFT JOIN order_items oi ON o.id = oi.order_id
+        LEFT JOIN product_products pp ON oi.product_id = pp.id
+        LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+        ${whereClause}
+        GROUP BY o.id
+        ORDER BY o.created_at DESC
+        LIMIT $${paramCount} OFFSET $${paramCount + 1}
+    `, [...params, limit, offset]);
+
+    return res.rows;
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Получить один заказ по ID с полными данными
+// ─────────────────────────────────────────────────────────────────
+const getOrderById = async (orderId) => {
+    const res = await db.query(`
+        SELECT
+            o.*,
+            u.email             AS user_email,
+            u.first_name        AS user_first_name,
+            u.last_name         AS user_last_name,
+            u.phone             AS user_phone,
+            u.address           AS user_default_address,
+
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'id',               oi.id,
+                        'product_id',       pp.id,
+                        'product_name',     pp.name,
+                        'product_sku',      pp.sku,
+                        'product_image',    COALESCE(pv.main_image_url, pp.main_image_url),
+                        'product_description', pp.description,
+                        'variant_id',       oi.variant_id,
+                        'variant_name',     pv.name,
+                        'variant_options',  pv.options,
+                        'variant_snapshot', oi.variant_snapshot,
+                        'quantity',         oi.quantity,
+                        'price',            oi.price,
+                        'discount_price',   oi.discount_price,
+                        -- ДОБАВЛЕНО: actual_price — реальная цена за единицу
+                        'actual_price',     CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price
+                            ELSE oi.price
+                        END,
+                        'line_total',       oi.quantity * CASE
+                            WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                            THEN oi.discount_price ELSE oi.price END,
+                        'created_at',       oi.created_at
+                    ) ORDER BY oi.id
+                ) FILTER (WHERE oi.id IS NOT NULL),
+                '[]'::json
+            )                   AS items,
+
+            (
+                SELECT json_agg(
+                    json_build_object(
+                        'id',               osh.id,
+                        'status',           osh.status,
+                        'created_at',       osh.created_at,
+                        'changed_by_user_id', osh.user_id,
+                        'changed_by_email', chu.email,
+                        'changed_by_name',  COALESCE(chu.first_name || ' ' || chu.last_name, chu.email)
+                    ) ORDER BY osh.created_at DESC
+                )
+                FROM order_status_history osh
+                LEFT JOIN users chu ON osh.user_id = chu.id
+                WHERE osh.order_id = o.id
+            )                   AS status_history
+
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN order_items oi ON o.id = oi.order_id
+        LEFT JOIN product_products pp ON oi.product_id = pp.id
+        LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+        WHERE o.id = $1
+        GROUP BY o.id, u.id
+    `, [orderId]);
+
+    return res.rows[0] || null;
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Получить все заказы (для администратора)
+// ─────────────────────────────────────────────────────────────────
+const getAllOrders = async (filters = {}, limit = 20, offset = 0) => {
+    const { status, user_id, date_from, date_to, search } = filters;
+
+    const conditions = [];
+    const params     = [];
+    let   p          = 1;
+
+    if (status)    { conditions.push(`o.status = $${p++}`);       params.push(status); }
+    if (user_id)   { conditions.push(`o.user_id = $${p++}`);      params.push(user_id); }
+    if (date_from) { conditions.push(`o.created_at >= $${p++}`);  params.push(date_from); }
+    if (date_to)   { conditions.push(`o.created_at <= $${p++}`);  params.push(date_to); }
+    if (search) {
+        conditions.push(`(
+            o.id::text ILIKE $${p} OR
+            u.email ILIKE $${p} OR
+            u.first_name ILIKE $${p} OR
+            u.last_name ILIKE $${p} OR
+            o.tracking_number ILIKE $${p}
+        )`);
+        params.push(`%${search}%`);
+        p++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const res = await db.query(`
+        SELECT
+            o.id, o.user_id, o.status, o.total_amount,
+            o.shipping_address, o.payment_method,
+            o.shipping_cost, o.tax_amount, o.discount_amount,
+            o.tracking_number, o.notes,
+            o.created_at, o.updated_at,
+            u.email             AS user_email,
+            u.first_name        AS user_first_name,
+            u.last_name         AS user_last_name,
+            u.phone             AS user_phone,
+            COUNT(DISTINCT oi.id)           AS items_count,
+            COALESCE(SUM(oi.quantity), 0)   AS total_items_quantity
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN order_items oi ON o.id = oi.order_id
+        ${where}
+        GROUP BY o.id, u.id
+        ORDER BY o.created_at DESC
+        LIMIT $${p} OFFSET $${p + 1}
+    `, [...params, limit, offset]);
+
+    return res.rows;
+};
+
+const getAllOrdersCount = async (filters = {}) => {
+    const { status, user_id, date_from, date_to, search } = filters;
+    const conditions = [];
+    const params     = [];
+    let   p          = 1;
+
+    if (status)    { conditions.push(`o.status = $${p++}`);       params.push(status); }
+    if (user_id)   { conditions.push(`o.user_id = $${p++}`);      params.push(user_id); }
+    if (date_from) { conditions.push(`o.created_at >= $${p++}`);  params.push(date_from); }
+    if (date_to)   { conditions.push(`o.created_at <= $${p++}`);  params.push(date_to); }
+    if (search) {
+        conditions.push(`(
+            o.id::text ILIKE $${p} OR
+            u.email ILIKE $${p} OR
+            u.first_name ILIKE $${p} OR
+            u.last_name ILIKE $${p} OR
+            o.tracking_number ILIKE $${p}
+        )`);
+        params.push(`%${search}%`);
+        p++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const res = await db.query(`
+        SELECT COUNT(DISTINCT o.id) AS total
+        FROM orders o LEFT JOIN users u ON o.user_id = u.id ${where}
+    `, params);
+    return parseInt(res.rows[0].total, 10);
+};
+
+const getUserOrdersCount = async (userId, status = null) => {
+    let where    = 'WHERE user_id = $1';
+    const params = [userId];
+    let p = 2;
+
+    if (status) {
+        if (Array.isArray(status)) {
+            const pl = status.map((_, i) => `$${p + i}`).join(',');
+            where += ` AND status IN (${pl})`;
+            params.push(...status);
+        } else {
+            where += ` AND status = $${p}`;
+            params.push(status);
+        }
+    }
+
+    const res = await db.query(`SELECT COUNT(*) AS total FROM orders ${where}`, params);
+    return parseInt(res.rows[0].total, 10);
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Обновление заказа
+// ─────────────────────────────────────────────────────────────────
+const updateOrderStatus = async (client, orderId, status) => {
+    const res = await client.query(
+        `UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+        [status, orderId]
+    );
+    return res.rows[0];
+};
+
+const updateOrder = async (client, orderId, updateData) => {
+    const allowed = [
+        'shipping_address','payment_method','shipping_cost','tax_amount',
+        'discount_amount','tracking_number','notes',
+        'customer_first_name','customer_last_name','customer_phone',
+    ];
+    const updates = [];
+    const values  = [];
+    let p = 1;
+
+    Object.keys(updateData).forEach(key => {
+        if (allowed.includes(key) && updateData[key] !== undefined) {
+            updates.push(`${key} = $${p++}`);
+            values.push(updateData[key]);
+        }
+    });
+
+    if (updates.length === 0) throw new Error('Нет данных для обновления');
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(orderId);
+
+    const res = await client.query(
+        `UPDATE orders SET ${updates.join(', ')} WHERE id = $${p} RETURNING *`,
+        values
+    );
+    return res.rows[0];
+};
+
+const recalculateOrderTotal = async (client, orderId) => {
+    const res = await client.query(`
+        UPDATE orders o
+        SET total_amount = (
+            SELECT COALESCE(SUM(oi.quantity * CASE
+                WHEN oi.discount_price IS NOT NULL AND oi.discount_price > 0
+                THEN oi.discount_price ELSE oi.price END), 0)
+            + o.shipping_cost + o.tax_amount - o.discount_amount
+            FROM order_items oi WHERE oi.order_id = o.id
+        ), updated_at = CURRENT_TIMESTAMP
+        WHERE o.id = $1 RETURNING *
+    `, [orderId]);
+    return res.rows[0];
+};
+
+const removeOrderItem = async (client, orderItemId) => {
+    const res = await client.query(
+        `DELETE FROM order_items WHERE id = $1 RETURNING *`,
+        [orderItemId]
+    );
+    return res.rows[0];
+};
+
+const updateOrderItemQuantity = async (client, orderItemId, newQuantity) => {
+    const res = await client.query(
+        `UPDATE order_items SET quantity = $1 WHERE id = $2 RETURNING *`,
+        [newQuantity, orderItemId]
+    );
+    return res.rows[0];
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Очистка корзины
+// ─────────────────────────────────────────────────────────────────
+const clearUserCart = async (client, userId) => {
+    await client.query('DELETE FROM cart_items WHERE user_id = $1', [userId]);
+};
+
+const removeSelectedCartItems = async (client, userId, selectedItemIds) => {
+    if (!selectedItemIds?.length) return;
+    const placeholders = selectedItemIds.map((_, i) => `$${i + 2}`).join(',');
+    await client.query(
+        `DELETE FROM cart_items WHERE user_id = $1 AND id IN (${placeholders})`,
+        [userId, ...selectedItemIds]
+    );
+};
+
+const returnItemsToCart = async (client, userId, orderItems) => {
+    for (const item of orderItems) {
+        const variantId = item.variant_id ?? null;
+
+        const existing = await client.query(`
+            SELECT id, quantity FROM cart_items
+            WHERE user_id = $1
+              AND product_id = $2
+              AND (($3::integer IS NULL AND variant_id IS NULL) OR variant_id = $3)
+        `, [userId, item.product_id, variantId]);
+
+        if (existing.rowCount > 0) {
+            await client.query(`
+                UPDATE cart_items
+                SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+            `, [item.quantity, existing.rows[0].id]);
+        } else {
+            await client.query(`
+                INSERT INTO cart_items (user_id, product_id, variant_id, quantity, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            `, [userId, item.product_id, variantId, item.quantity]);
+        }
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Статистика
+// ─────────────────────────────────────────────────────────────────
+const getOrderStats = async () => {
+    const [overallRes, dailyRes] = await Promise.all([
+        db.query(`
+            SELECT
+                COUNT(*)                                                    AS total_orders,
+                COALESCE(SUM(total_amount), 0)                              AS total_revenue,
+                COALESCE(AVG(total_amount), 0)                              AS avg_order_value,
+                COUNT(CASE WHEN status = 'completed'  THEN 1 END)           AS completed_orders,
+                COUNT(CASE WHEN status = 'pending'    THEN 1 END)           AS pending_orders,
+                COUNT(CASE WHEN status = 'paid'       THEN 1 END)           AS paid_orders,
+                COUNT(CASE WHEN status = 'processing' THEN 1 END)           AS processing_orders,
+                COUNT(CASE WHEN status = 'shipped'    THEN 1 END)           AS shipped_orders,
+                COUNT(CASE WHEN status = 'delivered'  THEN 1 END)           AS delivered_orders,
+                COUNT(CASE WHEN status = 'cancelled'  THEN 1 END)           AS cancelled_orders,
+                COUNT(CASE WHEN status = 'returned'   THEN 1 END)           AS returned_orders
+            FROM orders
+        `),
+        db.query(`
+            SELECT
+                DATE(created_at)                    AS date,
+                COUNT(*)                            AS orders_count,
+                COALESCE(SUM(total_amount), 0)      AS daily_revenue,
+                COALESCE(AVG(total_amount), 0)      AS avg_order_value
+            FROM orders
+            WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY DATE(created_at)
+            ORDER BY date DESC
+        `),
+    ]);
+    return { overall: overallRes.rows[0], daily: dailyRes.rows };
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Удалить заказ
+// ─────────────────────────────────────────────────────────────────
+const deleteOrder = async (client, orderId) => {
+    const res = await client.query(`
+        DELETE FROM orders WHERE id = $1 AND status IN ('pending','cancelled') RETURNING *
+    `, [orderId]);
+
+    if (res.rowCount === 0) {
+        throw new Error('Заказ не найден или его нельзя удалить в текущем статусе');
+    }
+    return res.rows[0];
 };
 
 module.exports = {
-  // Корзина
-  getCartItemsWithDetails,
-  clearUserCart,
-  getSelectedCartItemsWithDetails,
-  removeSelectedCartItems,
-
-  
-  // Создание заказа
-  createOrder,
-  addOrderItem,
-  addStatusHistory,
-  
-  // Получение заказов
-  getUserOrders,
-  getUserOrdersCount,
-  getAllOrders,
-  getAllOrdersCount,
-  getOrderById,
-  
-  // Обновление заказа
-  updateOrderStatus,
-  updateOrder,
-  recalculateOrderTotal,
-  
-  // Работа с товарами в заказе
-  removeOrderItem,
-  updateOrderItemQuantity,
-  
-  // Склад
-  checkInventory,
-  decreaseInventory,
-  returnInventory,
-  
-  // Статистика
-  getOrderStats,
-  
-  // Удаление
-  deleteOrder,
-
-  // Отмена
-  returnItemsToCart,
+    getCartItemsWithDetails,
+    getSelectedCartItemsWithDetails,
+    clearUserCart,
+    removeSelectedCartItems,
+    returnItemsToCart,
+    createOrder,
+    addOrderItem,
+    addStatusHistory,
+    getUserOrders,
+    getUserOrdersCount,
+    getAllOrders,
+    getAllOrdersCount,
+    getOrderById,
+    updateOrderStatus,
+    updateOrder,
+    recalculateOrderTotal,
+    removeOrderItem,
+    updateOrderItemQuantity,
+    checkInventory,
+    decreaseInventory,
+    returnInventory,
+    getOrderStats,
+    deleteOrder,
 };
