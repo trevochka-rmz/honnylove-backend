@@ -320,10 +320,6 @@ router.get('/:productId/variants', variantController.getVariants);
  * - discountOverrideKg: число, скидочная цена в сомах (null = берётся у товара)
  * - stockQuantity: число, начальное количество на складе (по умолчанию 0)
  *     Записывается в product_inventory, не в таблицу вариантов напрямую
- * - isNew: "true" | "false" | "null" (null = наследует у товара)
- * - isBestseller: "true" | "false" | "null" (null = наследует у товара)
- * - isFeatured: "true" | "false" | "null" (null = наследует у товара)
- * - isAvailable: "true" | "false" (доступен ли для продажи, по умолчанию "true")
  * - sortOrder: число, порядок сортировки (по умолчанию 0)
  *
  * Файлы:
@@ -356,11 +352,6 @@ router.post('/:productId/variants', authenticate, requireRole(['admin']), varian
  * - priceOverrideKg: число или "" или "0"
  * - discountOverrideKg: число или "" или "0"
  * - stockQuantity: число, новое количество на складе (обновляется в product_inventory)
- * - isNew: "true" | "false" | "null"
- * - isBestseller: "true" | "false" | "null"
- * - isFeatured: "true" | "false" | "null"
- * - isActive: "true" | "false", активен ли вариант
- * - isAvailable: "true" | "false", доступен ли для продажи
  * - sortOrder: число, порядок сортировки
  *
  * Файлы (опционально):

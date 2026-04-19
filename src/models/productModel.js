@@ -281,6 +281,11 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
 
     const variantOptions = data.variantOptions || {};
 
+    const optionValues = Object.values(variantOptions);
+    const variantName  = optionValues.length > 0
+        ? optionValues.join(' / ')
+        : 'Стандарт';
+
     delete data.stockQuantity;
     delete data.stockQuantityKg;
     delete data.variantOptions; 
@@ -325,13 +330,13 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
     // создание варианта 
     const { rows: variantRows } = await db.query(
         `INSERT INTO product_variants
-            (product_id, name, options, is_active, is_available, sort_order)
-         VALUES ($1, $2, $3, TRUE, TRUE, 0)
+            (product_id, name, options, is_active, sort_order)
+         VALUES ($1, $2, $3, TRUE, 0)
          RETURNING id`,
         [productId, variantName, JSON.stringify(variantOptions)]
     );
     const defaultVariantId = variantRows[0].id;
-
+    
     await upsertVariantInventory(defaultVariantId, productId, stockQuantityRu, 1);
     if (stockQuantityKg > 0) {
         await upsertVariantInventory(defaultVariantId, productId, stockQuantityKg, 4);
