@@ -8,13 +8,8 @@ const { validateImageFile } = require('../utils/imageUtils');
 // Схема валидации — СОЗДАНИЕ
 // ─────────────────────────────────────────────────────────────────
 const createVariantSchema = Joi.object({
-    name: Joi.string().trim().min(1).max(255).required()
-        .messages({
-            'string.empty': 'Поле name обязательно',
-            'any.required': 'Поле name обязательно',
-        }),
-
-    // Произвольный объект опций: {"Размер":"XL","Цвет":"Синий"}
+    name: Joi.string().trim().min(1).max(255).optional(),
+    //{"Размер":"XL","Цвет":"Синий"}
     options: Joi.object().default({}),
 
     sku: Joi.string().max(100).allow(null, '').optional(),

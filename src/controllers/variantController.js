@@ -19,24 +19,14 @@ const getVariants = async (req, res, next) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// POST /api/products/:productId/variants
-// Admin. Content-Type: multipart/form-data
-//
-// Поля FormData:
-//   name (обязательно)
-//   options (JSON строка, например '{"Размер":"XL"}')
-//   sku
-//   priceOverride, discountOverride, purchaseOverride         ← RUB
-//   priceOverrideKg, discountOverrideKg, purchaseOverrideKg  ← KGS
-//   stockQuantity   (Россия, loc=1, по умолчанию 0)
-//   stockQuantityKg (Кыргызстан, loc=4, по умолчанию 0)
-//   sortOrder
-//   isActive
-// Файлы:
-//   variantMainImage (1 шт, опционально — null в БД → view берёт фото товара)
-//   variantGallery   (до 5 шт)
-// ─────────────────────────────────────────────────────────────────
+/**
+ * POST /api/products/:productId/variants
+ * ...
+ * Поля FormData:
+ * - name: строка (ОПЦИОНАЛЬНО). Если не передан — генерируется автоматически из options
+ * - options: JSON-строка (рекомендуется). Пример: '{"Цвет":"Белый","Размер":"S","Код":"#FFFDF5"}'
+ *   → name станет "S / Белый" (Код игнорируется)
+ */
 const createVariant = [
     upload.fields([
         { name: 'variantMainImage', maxCount: 1 },

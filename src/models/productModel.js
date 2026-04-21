@@ -8,6 +8,7 @@ const {
     deleteProductGallery,
     deleteVariantGallery,
 } = require('../utils/s3Uploader');
+const { generateVariantName } = require('./variantModel');
 
 // ─────────────────────────────────────────────────────────────────
 // Выбор view в зависимости от региона и роли
@@ -281,10 +282,7 @@ const createProduct = async (data, mainImageFile, galleryFiles) => {
 
     const variantOptions = data.variantOptions || {};
 
-    const optionValues = Object.values(variantOptions);
-    const variantName  = optionValues.length > 0
-        ? optionValues.join(' / ')
-        : 'Стандарт';
+    const variantName = generateVariantName(variantOptions);
 
     delete data.stockQuantity;
     delete data.stockQuantityKg;
@@ -400,7 +398,7 @@ const updateProduct = async (id, data, newMainImageFile, newGalleryFiles) => {
             // Название из ВСЕХ значений через " / "
             // {"Объём":"50 мл"}                 → "50 мл"
             // {"Объём":"50 мл","Цвет":"Синий"}  → "50 мл / Синий"
-            const newName = Object.values(newOptions).join(' / ');
+            const newName = generateVariantName(newOptions);
 
             await db.query(
                 `UPDATE product_variants

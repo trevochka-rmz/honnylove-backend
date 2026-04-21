@@ -7,6 +7,24 @@ const {
     deleteVariantGallery,
 } = require('../utils/s3Uploader');
 
+
+// Генерация имени варианта
+const generateVariantName = (options = {}) => {
+    if (!options || typeof options !== 'object' || Object.keys(options).length === 0) {
+        return 'Стандарт';
+    }
+
+    // Ключи, которые НЕ участвуют в названии
+    const ignoredKeys = new Set(['Код', 'code', 'Code', 'код', 'ID', 'id', 'Артикул', 'артикул']);
+
+    const values = Object.entries(options)
+        .filter(([key]) => !ignoredKeys.has(key.trim()))
+        .map(([, value]) => String(value || '').trim())
+        .filter(v => v.length > 0);
+
+    return values.length > 0 ? values.join(' / ') : 'Стандарт';
+};
+
 // ─────────────────────────────────────────────────────────────────
 // ВАЖНО:
 //   - Локации: 1 = Россия (RU), 4 = Кыргызстан (KG)
@@ -164,6 +182,11 @@ const createVariant = async (productId, data, mainImageFile, galleryFiles) => {
         sortOrder           = 0,
     } = data;
 
+
+    const finalName = (name && name.trim() !== '') 
+    ? name.trim() 
+    : generateVariantName(options);
+
     const { rows } = await db.query(
         `INSERT INTO product_variants
             (product_id, name, options, sku,
@@ -173,7 +196,7 @@ const createVariant = async (productId, data, mainImageFile, galleryFiles) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11)
          RETURNING *`,
         [
-            productId, name, JSON.stringify(options), sku,
+            productId, finalName, JSON.stringify(options), sku,
             priceOverride, discountOverride, purchaseOverride,
             priceOverrideKg, discountOverrideKg, purchaseOverrideKg,
             sortOrder,
@@ -235,6 +258,10 @@ const updateVariant = async (variantId, productId, data, newMainImageFile, newGa
     const current = await getVariantById(variantId, productId);
     if (!current) return null;
 
+    if (data.options !== undefined) {
+        data.name = generateVariantName(data.options);
+    }
+
     const fieldMap = {
         name:               'name',
         options:            'options',
@@ -278,7 +305,7 @@ const updateVariant = async (variantId, productId, data, newMainImageFile, newGa
         values.push(imageUrl);
         idx++;
     }
-
+  
     // ── Замена галереи ───────────────────────────────────────────
     // Удаляем все старые → загружаем новые → пишем URLs в БД
     if (newGalleryFiles?.length) {
@@ -403,4 +430,5 @@ module.exports = {
     updateVariant,
     deleteVariant,
     upsertVariantInventory,
+    generateVariantName,
 };

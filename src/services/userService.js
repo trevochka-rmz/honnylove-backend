@@ -51,13 +51,15 @@ const updateProfileSchema = Joi.object({
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(10),
-  role: Joi.string().valid('customer', 'manager', 'admin').optional(),
+  // По умолчанию показываем обычных пользователей (customer)
+  role: Joi.string().valid('customer', 'manager', 'admin').optional().default('customer'),
 });
 
 // Получить всех пользователей с пагинацией и фильтром
 const getAllUsers = async (query) => {
   const { error, value } = querySchema.validate(query);
   if (error) throw new AppError(error.details[0].message, 400);
+
   return userModel.getAllUsers(value);
 };
 
