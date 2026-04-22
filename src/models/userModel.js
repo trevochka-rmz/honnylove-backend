@@ -97,29 +97,43 @@ const deleteUser = async (id) => {
 
 // Получить всех пользователей с пагинацией + глобальная статистика
 const getAllUsers = async ({ page = 1, limit = 10, role }) => {
-  // 1. Основной запрос пользователей (с фильтром по роли, если указана)
-  let query = `
+  // Если role не передан ИЛИ role = 'all' — показываем всех пользователей
+  let whereClause = '';
+  const filterParams = [];
+
+  if (role && role !== 'all') {
+    whereClause = 'WHERE role = $1';
+    filterParams.push(role);
+  }
+
+  // 1. Подсчёт общего количества (по текущему фильтру)
+  const countQuery = `
+    SELECT COUNT(*) as total 
+    FROM users 
+    ${whereClause}
+  `;
+  const { rows: countRows } = await db.query(countQuery, filterParams);
+  const total = parseInt(countRows[0].total, 10);
+
+  // 2. Получаем пользователей текущей страницы
+  const userParams = [...filterParams];
+  const userQuery = `
     SELECT id, username, email, role, first_name, last_name, phone, address,
            is_active, created_at, updated_at, discount_percentage
     FROM users
+    ${whereClause}
+    ORDER BY id
+    LIMIT $${userParams.length + 1} OFFSET $${userParams.length + 2}
   `;
-  const params = [];
+  userParams.push(limit, (page - 1) * limit);
 
-  if (role) {
-    query += ' WHERE role = $1';
-    params.push(role);
-  }
+  const { rows: users } = await db.query(userQuery, userParams);
 
-  query += ` ORDER BY id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-  params.push(limit, (page - 1) * limit);
-
-  const { rows: users } = await db.query(query, params);
-
-  // 2. Глобальная статистика (один запрос)
+  // 3. Глобальная статистика (всегда по всем пользователям)
   const statsResult = await db.query(`
     SELECT
       COUNT(*) AS total_users,
-      COUNT(CASE WHEN is_verified = true THEN 1 END) AS verified_users,
+      COUNT(CASE WHEN is_verified = true AND role = 'customer' THEN 1 END) AS verified_customers,
       COUNT(CASE WHEN role = 'customer' THEN 1 END) AS customer_count,
       COUNT(CASE WHEN role = 'admin' THEN 1 END) AS admin_count,
       COUNT(CASE WHEN role = 'manager' THEN 1 END) AS manager_count
@@ -128,11 +142,20 @@ const getAllUsers = async ({ page = 1, limit = 10, role }) => {
 
   const stats = statsResult.rows[0];
 
+  // 4. Метаданные пагинации
+  const pages = Math.ceil(total / limit);
+  const hasMore = page * limit < total;
+
   return {
     users,
+    total,
+    page: parseInt(page, 10),
+    pages,
+    limit: parseInt(limit, 10),
+    hasMore,
     stats: {
       totalUsers: parseInt(stats.total_users, 10),
-      verifiedUsers: parseInt(stats.verified_users, 10),
+      verifiedUsers: parseInt(stats.verified_customers, 10),
       customerCount: parseInt(stats.customer_count, 10),
       adminCount: parseInt(stats.admin_count, 10),
       managerCount: parseInt(stats.manager_count, 10)

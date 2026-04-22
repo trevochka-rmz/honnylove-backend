@@ -2,7 +2,7 @@
 const bcrypt = require('bcryptjs');
 const Joi = require('joi');
 const userModel = require('../models/userModel');
-const refreshTokenModel = require('../models/refreshTokenModel'); // ← НОВОЕ
+const refreshTokenModel = require('../models/refreshTokenModel'); 
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -11,7 +11,7 @@ const {
 const AppError = require('../utils/errorUtils');
 const emailService = require('./emailService');
 
-// Схемы валидации (БЕЗ ИЗМЕНЕНИЙ)
+// Схемы валидации 
 const userSchema = Joi.object({
   username: Joi.string().min(3).max(255).required().messages({
     'string.min': 'Имя пользователя должно быть не менее 3 символов',

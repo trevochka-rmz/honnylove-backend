@@ -51,8 +51,8 @@ const updateProfileSchema = Joi.object({
 const querySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(10),
-  // По умолчанию показываем обычных пользователей (customer)
-  role: Joi.string().valid('customer', 'manager', 'admin').optional().default('customer'),
+  // role теперь полностью опционален — если не передан, показываем ВСЕХ
+  role: Joi.string().valid('customer', 'manager', 'admin', 'all').optional(),
 });
 
 // Получить всех пользователей с пагинацией и фильтром
